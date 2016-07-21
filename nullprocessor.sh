@@ -1,6 +1,6 @@
 #!/bin/bash
-PROC='spoon.examples.notnull.NotNullCheckAdderProcessor'
-INPUT='spoonable/SimpleLoopExample/src'
+PROC='com.lukemerrick.loopbody.processors.NotNullCheckAdderProcessor'
+INPUT='spoonable_examples/SimpleLoopExample/src'
 OUTPUT="${PWD}/spooned"
 echo
 echo "-------------- RUNNING THE FOLLOWING -----------"
