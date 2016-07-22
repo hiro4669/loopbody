@@ -24,6 +24,7 @@ public class BasicWrapper extends AbstractProcessor<CtLoop> {
 		// TODO Step 2: identify if a return statment exists
 		// TODO Step 3: identify all local variables accessed within the loop
 		// TODO Step 4: Create internal class
+		CtClass envClass = factory.Core().createClass();
 			/* ---- Inner class specifications: -----
 			* -> class-local version of every local variable used in the loop body
 			* -> class-local variable of return type of most abstract-typed return statement
