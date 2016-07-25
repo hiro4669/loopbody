@@ -1,0 +1,10 @@
+class a {
+    var1 
+    method b {
+        var2
+        try {
+            var3
+            for {}
+        }
+    }
+}
