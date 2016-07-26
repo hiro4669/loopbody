@@ -5,6 +5,7 @@ public class MatchingLoop {
 		String[] romanNumerals = {"I", "II", "III", "IV", "V", 
 				"VI", "VII", "VIII", "IX", "X"};
 		for (String s : romanNumerals) {
+			//testloop1
 			System.out.println("looking for " + s);
 			System.out.println("lucky search result: " + luckySearch(s, romanNumerals));
 		}
