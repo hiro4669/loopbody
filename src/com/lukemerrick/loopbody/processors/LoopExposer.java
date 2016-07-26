@@ -21,23 +21,43 @@ import spoon.reflect.declaration.*;
  *
  */
 public class LoopExposer extends AbstractProcessor<CtLoop> {
+	private final boolean DEBUG_MODE = true;
+
+
+	//------------------------- *SIMPLE DEGUGGING SYSTEM* -------------------
+	private void debug(String message) {
+		if (!DEBUG_MODE)
+			return;
+		System.out.println(">>> " + message);
+	}
+	private void debugHeader(String header) {
+		if (!DEBUG_MODE)
+			return;
+		System.out.println("-------" + header + "-------");
+	}
+	//------------------------- ^SIMPLE DEGUGGING SYSTEM^ -------------------
+
+	/**
+	* Transforms the body of a loop so it can be written into a method of a local class
+	*/
+	private CtStatement processLoopBodyWithoutReturn(CtStatement originalLoopBody) {
+		//TODO: Implement
+		return originalLoopBody;
+	}
+
+	private boolean checkForReturnStatement(CtLoop loop) {
+		TypeFilter<CtReturn> returnFilter = new TypeFilter<CtReturn>(CtReturn.class);
+		List<CtReturn> retStatementList = loop.getBody().getElements(returnFilter);
+		return !retStatementList.isEmpty();
+	}
 
 	// Step 1: pick a loop
 	public void process(CtLoop element) {
-		String loopComment;
-		try {
-			loopComment = element.toString();
-		} 
-		catch (Exception e) {
-			System.out.println("error: " + e);
-			loopComment = "[NO MARKER]";
-		}
-		System.out.println("going through loop: \n\"" + loopComment + "\"");
-		// TODO Step 2: identify if a return statment exists
-		TypeFilter<CtReturn> returnFilter = new TypeFilter<CtReturn>(CtReturn.class);
-		List<CtReturn> retStatementList = element.getBody().getElements(returnFilter);
-		boolean hasReturnStatement = !retStatementList.isEmpty();
-		System.out.println("return statment exists: " + hasReturnStatement);
+		debugHeader("Processing Loop");
+		debug("Contents:\n\"" + element + "\"");
+		// Step 2: identify if a return statment exists
+		boolean hasReturnStatement = checkForReturnStatement(element);
+		debug("return statment exists: " + hasReturnStatement);
 
 
 		// // Step 3: identify all local variables accessed within the loop
@@ -87,6 +107,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 			*/
 		// TODO Step 9: After loop, uncache variables 
 		// 				through the injection of assignment statements
+		System.out.println("");
 	}
 	
 
