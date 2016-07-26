@@ -7,4 +7,4 @@ echo
 echo "-------------- RUNNING THE FOLLOWING -----------"
 echo "\"./corescript.sh $PROC $INPUT $OUTPUT\""
 echo
-./runspoon.sh $PROC $INPUT $OUTPUT
+./corescript.sh $PROC $INPUT $OUTPUT
