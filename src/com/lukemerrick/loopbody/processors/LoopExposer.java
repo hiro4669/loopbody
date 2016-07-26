@@ -20,7 +20,7 @@ import spoon.reflect.declaration.*;
  * @author Luke Merrick
  *
  */
-public class BasicWrapper extends AbstractProcessor<CtLoop> {
+public class LoopExposer extends AbstractProcessor<CtLoop> {
 
 	// Step 1: pick a loop
 	public void process(CtLoop element) {
