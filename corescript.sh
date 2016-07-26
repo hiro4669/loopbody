@@ -18,7 +18,9 @@ echo
 
 java \
 -classpath "bin:lib/spoon.jar" \
--jar "lib/spoon.jar" \
+spoon.Launcher \
 -i "${input}" \
 -d "${output}" \
 -p "${processor}"
+
+chown -R $USER: ${output}

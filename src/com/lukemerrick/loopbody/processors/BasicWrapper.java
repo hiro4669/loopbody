@@ -3,14 +3,13 @@ package com.lukemerrick.loopbody.processors;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.ArrayList;
-
-// TODO: use correct import statements
-// import spoon.processing.AbstractProcessor;
-// import spoon.reflect.code.CtCodeSnippetStatement;
-// import spoon.reflect.code.CtLoop;
-// import spoon.reflect.code.CtStatement;
-// import spoon.reflect.declaration.CtExecutable;
-// import spoon.reflect.declaration.CtParameter;
+import java.util.List;
+import spoon.processing.AbstractProcessor;
+import spoon.reflect.code.*;
+import spoon.reflect.visitor.filter.*;
+import spoon.reflect.reference.CtVariableReference;
+import spoon.reflect.reference.CtLocalVariableReference;
+import spoon.reflect.declaration.*;
 
 /**
  * Transforms regular loops into "exposed" loops by injecting a local class
@@ -27,34 +26,35 @@ public class BasicWrapper extends AbstractProcessor<CtLoop> {
 	public void process(CtLoop element) {
 
 		// TODO Step 2: identify if a return statment exists
-		List<CtReturn> retStatementList = element.getBody().getElements(new TypeFilter<CtReturn>());
+		TypeFilter<CtReturn> returnFilter = new TypeFilter<CtReturn>(CtReturn.class);
+		List<CtReturn> retStatementList = element.getBody().getElements(returnFilter);
 		boolean hasReturnStatement = retStatementList.isEmpty();
 
 
 		// Step 3: identify all local variables accessed within the loop
 		// TODO: make sure this works with objects and arrays
-		Filter localVarAccessFilter = new TypeFilter(CtVariableAccess.class);
-		ArrayList<CtVariableAccess> localVarAccesses = element.getElements(localVarAccessFilter);
+		TypeFilter<CtVariableAccess> localVarAccessFilter = new TypeFilter<CtVariableAccess>(CtVariableAccess.class);
+		ArrayList<CtVariableAccess> localVarAccesses = new ArrayList(element.getElements(localVarAccessFilter));
 		HashSet<CtVariableReference> referencedVars = new HashSet<CtVariableReference>();
-		for (a : localVarAccesses) {
+		for (CtVariableAccess a : localVarAccesses) {
 			referencedVars.add(a.getVariable());
 		}
 
 
 
 		// TODO Step 4: Create internal class
-		CtClass envClass = factory.Core().createClass();
-		HashMap<CtLocalVariableReference> variableMappings = new HashMap<CtLocalVariableReference>();
-		for (CtLocalVariableReference var : referencedVars) {
+		CtClass envClass = getFactory().Core().createClass();
+		HashMap<CtLocalVariableReference, CtLocalVariableReference> variableMappings = new HashMap<CtLocalVariableReference, CtLocalVariableReference>();
+		for (CtVariableReference var : referencedVars) {
 			// create "cache variable" and add it to this new class
 			// map the caching inside of "variableMappings"
 		}
 
 		
-		CtElement loopBodyMethod = getFactory().Core().createMethod();
-		LoopBodyMethod.setType(Boolean.class);
+		CtMethod loopBodyMethod = getFactory().Core().createMethod();
+		loopBodyMethod.setType(getFactory().Type().BOOLEAN);
 		if (hasReturnStatement) { //set up a local value to store the return value
-			CtExpression retExpression = retStatementList[0].getReturnedExpression();
+			CtExpression retExpression = retStatementList.get(0).getReturnedExpression();
 			CtLocalVariable retVar = getFactory().Core().createLocalVariable();
 			retVar.setType(retExpression.getType());
 		}
