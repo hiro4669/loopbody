@@ -25,55 +25,6 @@ import spoon.reflect.declaration.*;
 public class LoopExposer extends AbstractProcessor<CtLoop> {
 	private final boolean DEBUG_MODE = true;
 
-
-	//------------------------- *SIMPLE DEGUGGING SYSTEM* -------------------
-	private void debug(String message) {
-		if (!DEBUG_MODE)
-			return;
-		System.out.println(">>> " + message);
-	}
-	private void debugHeader(String header) {
-		if (!DEBUG_MODE)
-			return;
-		System.out.println("-------" + header + "-------");
-	}
-	private void debugNewline() {
-		if (!DEBUG_MODE)
-			return;
-		System.out.println();
-	}
-	//------------------------- ^SIMPLE DEGUGGING SYSTEM^ -------------------
-
-	/**
-	* Transforms the body of a loop so it can be written into a method of a local class
-	*/
-	private CtStatement processLoopBodyWithoutReturn(CtStatement originalLoopBody) {
-		//TODO: Implement
-		return originalLoopBody;
-	}
-
-	/**
-	* Returns true if the body of "loop" includes a return statement, false otherwise
-	*/
-	private boolean checkForReturnStatement(CtLoop loop) {
-		TypeFilter<CtReturn> returnFilter = new TypeFilter<CtReturn>(CtReturn.class);
-		List<CtReturn> retStatementList = loop.getBody().getElements(returnFilter);
-		return !retStatementList.isEmpty();
-	}
-
-	/**
-	* Returns a Set<CtLocalVariableReference> of all local variables accessed in the body of "loop"
-	*/
-	private Set<CtLocalVariableReference> referencedLocalVars(CtLoop loop) {
-		TypeFilter<CtVariableAccess> variableAccess = new TypeFilter<CtVariableAccess>(CtVariableAccess.class);
-		return loop.getElements(variableAccess)
-					.stream()
-					.map(access -> access.getVariable())
-					.filter(var -> var instanceof CtLocalVariableReference)
-					.map(var -> (CtLocalVariableReference) var)
-					.collect(toSet());
-	}
-
 	// Step 1: pick a loop
 	public void process(CtLoop element) {
 		debugHeader("Processing Loop");
@@ -131,6 +82,60 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		// 				through the injection of assignment statements
 		System.out.println("");
 	}
+
+	
+	//========================================================================
+	//========================= *HELPER METHODS BELOW* =======================
+	//========================================================================
+
+	/**
+	* Transforms the body of a loop so it can be written into a method of a local class
+	*/
+	private CtStatement processLoopBodyWithoutReturn(CtStatement originalLoopBody) {
+		//TODO: Implement
+		return originalLoopBody;
+	}
+
+	/**
+	* Returns true if the body of "loop" includes a return statement, false otherwise
+	*/
+	private boolean checkForReturnStatement(CtLoop loop) {
+		TypeFilter<CtReturn> returnFilter = new TypeFilter<CtReturn>(CtReturn.class);
+		List<CtReturn> retStatementList = loop.getBody().getElements(returnFilter);
+		return !retStatementList.isEmpty();
+	}
+
+	/**
+	* Returns a Set<CtLocalVariableReference> of all local variables accessed in the body of "loop"
+	*/
+	private Set<CtLocalVariableReference> referencedLocalVars(CtLoop loop) {
+		TypeFilter<CtVariableAccess> variableAccess = new TypeFilter<CtVariableAccess>(CtVariableAccess.class);
+		return loop.getElements(variableAccess)
+					.stream()
+					.map(access -> access.getVariable())
+					.filter(var -> var instanceof CtLocalVariableReference)
+					.map(var -> (CtLocalVariableReference) var)
+					.collect(toSet());
+	}
+
+
+	//------------------------- *SIMPLE DEGUGGING SYSTEM* -------------------
+	private void debug(String message) {
+		if (!DEBUG_MODE)
+			return;
+		System.out.println(">>> " + message);
+	}
+	private void debugHeader(String header) {
+		if (!DEBUG_MODE)
+			return;
+		System.out.println("-------" + header + "-------");
+	}
+	private void debugNewline() {
+		if (!DEBUG_MODE)
+			return;
+		System.out.println();
+	}
+	//------------------------- ^SIMPLE DEGUGGING SYSTEM^ -------------------
 	
 
 }
