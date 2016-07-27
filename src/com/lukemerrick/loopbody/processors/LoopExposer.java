@@ -37,6 +37,11 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 			return;
 		System.out.println("-------" + header + "-------");
 	}
+	private void debugNewline() {
+		if (!DEBUG_MODE)
+			return;
+		System.out.println();
+	}
 	//------------------------- ^SIMPLE DEGUGGING SYSTEM^ -------------------
 
 	/**
@@ -47,10 +52,26 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		return originalLoopBody;
 	}
 
+	/**
+	* Returns true if the body of "loop" includes a return statement, false otherwise
+	*/
 	private boolean checkForReturnStatement(CtLoop loop) {
 		TypeFilter<CtReturn> returnFilter = new TypeFilter<CtReturn>(CtReturn.class);
 		List<CtReturn> retStatementList = loop.getBody().getElements(returnFilter);
 		return !retStatementList.isEmpty();
+	}
+
+	/**
+	* Returns a Set<CtLocalVariableReference> of all local variables accessed in the body of "loop"
+	*/
+	private Set<CtLocalVariableReference> referencedLocalVars(CtLoop loop) {
+		TypeFilter<CtVariableAccess> variableAccess = new TypeFilter<CtVariableAccess>(CtVariableAccess.class);
+		return loop.getElements(variableAccess)
+					.stream()
+					.map(access -> access.getVariable())
+					.filter(var -> var instanceof CtLocalVariableReference)
+					.map(var -> (CtLocalVariableReference) var)
+					.collect(toSet());
 	}
 
 	// Step 1: pick a loop
@@ -60,38 +81,22 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		// Step 2: identify if a return statment exists
 		boolean hasReturnStatement = checkForReturnStatement(element);
 		debug("return statment exists: " + hasReturnStatement);
+		debugNewline();
 
 
 		// Step 3: identify all local variables accessed within the loop
 		// TODO: make sure this works with objects and arrays
-		TypeFilter<CtVariableAccess> localVarAccessFilter = new TypeFilter<CtVariableAccess>(CtVariableAccess.class);
-		ArrayList<CtVariableAccess> localVarAccesses = new ArrayList(element.getElements(localVarAccessFilter));
-		Set<CtVariableReference> referencedLocalVars =
-			localVarAccesses.stream()
-							.map(access -> access.getVariable())
-							.filter(var -> var instanceof CtLocalVariableReference)
-							.collect(toSet());
-		debug("printing accessed local variables");
-		for (CtVariableReference a : referencedLocalVars) {
-			debug(a.toString());
-		}
-		// debug("trying to get declarations");
-		// for (CtVariableReference a : referencedLocalVars) {
-		// 	CtVariable x = a.getDeclaration();
-		// 	if (x != null) {
-		// 		debug(a.getDeclaration().toString());
-		// 		debug(x.getClass().getCanonicalName());
-		// 	}
-		// 	else
-		// 		debug("can't find declaration for variable " + a);
-		// }
+		Set<CtLocalVariableReference> varsToCache = referencedLocalVars(element); 
+		debugHeader("local variables to chache");
+		varsToCache.stream().forEach(a -> debug(a.toString()));
+		debugNewline();
 
 
 
 		// // TODO Step 4: Create internal class
 		// CtClass envClass = getFactory().Core().createClass();
 		// HashMap<CtLocalVariableReference, CtLocalVariableReference> variableMappings = new HashMap<CtLocalVariableReference, CtLocalVariableReference>();
-		// for (CtVariableReference var : referencedLocalVars) {
+		// for (CtVariableReference var : varsToCache) {
 		// 	// create "cache variable" and add it to this new class
 		// 	// map the caching inside of "variableMappings"
 		// }
