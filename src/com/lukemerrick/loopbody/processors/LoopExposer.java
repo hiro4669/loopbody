@@ -1,6 +1,8 @@
 package com.lukemerrick.loopbody.processors;
 
+import static java.util.stream.Collectors.*;
 import java.util.HashSet;
+import java.util.Set;
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,13 +62,28 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		debug("return statment exists: " + hasReturnStatement);
 
 
-		// // Step 3: identify all local variables accessed within the loop
-		// // TODO: make sure this works with objects and arrays
-		// TypeFilter<CtVariableAccess> localVarAccessFilter = new TypeFilter<CtVariableAccess>(CtVariableAccess.class);
-		// ArrayList<CtVariableAccess> localVarAccesses = new ArrayList(element.getElements(localVarAccessFilter));
-		// HashSet<CtVariableReference> referencedVars = new HashSet<CtVariableReference>();
-		// for (CtVariableAccess a : localVarAccesses) {
-		// 	referencedVars.add(a.getVariable());
+		// Step 3: identify all local variables accessed within the loop
+		// TODO: make sure this works with objects and arrays
+		TypeFilter<CtVariableAccess> localVarAccessFilter = new TypeFilter<CtVariableAccess>(CtVariableAccess.class);
+		ArrayList<CtVariableAccess> localVarAccesses = new ArrayList(element.getElements(localVarAccessFilter));
+		Set<CtVariableReference> referencedLocalVars =
+			localVarAccesses.stream()
+							.map(access -> access.getVariable())
+							.filter(var -> var instanceof CtLocalVariableReference)
+							.collect(toSet());
+		debug("printing accessed local variables");
+		for (CtVariableReference a : referencedLocalVars) {
+			debug(a.toString());
+		}
+		// debug("trying to get declarations");
+		// for (CtVariableReference a : referencedLocalVars) {
+		// 	CtVariable x = a.getDeclaration();
+		// 	if (x != null) {
+		// 		debug(a.getDeclaration().toString());
+		// 		debug(x.getClass().getCanonicalName());
+		// 	}
+		// 	else
+		// 		debug("can't find declaration for variable " + a);
 		// }
 
 
@@ -74,7 +91,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		// // TODO Step 4: Create internal class
 		// CtClass envClass = getFactory().Core().createClass();
 		// HashMap<CtLocalVariableReference, CtLocalVariableReference> variableMappings = new HashMap<CtLocalVariableReference, CtLocalVariableReference>();
-		// for (CtVariableReference var : referencedVars) {
+		// for (CtVariableReference var : referencedLocalVars) {
 		// 	// create "cache variable" and add it to this new class
 		// 	// map the caching inside of "variableMappings"
 		// }
