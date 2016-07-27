@@ -2,15 +2,17 @@ package com.lukemerrick.loopbody.processors;
 
 import static java.util.stream.Collectors.*;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Set;
+import java.util.Arrays;
+import java.util.Map;
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
 import spoon.processing.AbstractProcessor;
 import spoon.reflect.code.*;
 import spoon.reflect.visitor.filter.*;
-import spoon.reflect.reference.CtVariableReference;
-import spoon.reflect.reference.CtLocalVariableReference;
+import spoon.reflect.reference.*;
 import spoon.reflect.declaration.*;
 
 /**
@@ -24,6 +26,9 @@ import spoon.reflect.declaration.*;
  */
 public class LoopExposer extends AbstractProcessor<CtLoop> {
 	private final boolean DEBUG_MODE = true;
+	private final String TAG_FOR_NAMING = "$EXPOSED_JAVA$";
+	private final String BASE_ENV_CLASS_NAME = "LoopBodyEnvironment";
+	private static int loopNumber = 0;
 
 	// Step 1: pick a loop
 	public void process(CtLoop element) {
@@ -34,23 +39,21 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		debug("return statment exists: " + hasReturnStatement);
 		debugNewline();
 
-
 		// Step 3: identify all local variables accessed within the loop
-		// TODO: make sure this works with objects and arrays
 		Set<CtLocalVariableReference> varsToCache = referencedLocalVars(element); 
-		debugHeader("local variables to chache");
+		debugHeader("local variables to cache");
 		varsToCache.stream().forEach(a -> debug(a.toString()));
 		debugNewline();
 
-
-
-		// // TODO Step 4: Create internal class
-		// CtClass envClass = getFactory().Core().createClass();
-		// HashMap<CtLocalVariableReference, CtLocalVariableReference> variableMappings = new HashMap<CtLocalVariableReference, CtLocalVariableReference>();
-		// for (CtVariableReference var : varsToCache) {
-		// 	// create "cache variable" and add it to this new class
-		// 	// map the caching inside of "variableMappings"
-		// }
+		// Step 4: create internal class 
+		debug("creating internal envClass");
+		CtClass envClass = createEnvClass(element);
+		HashMap<CtLocalVariableReference, CtFieldReference> varMappings = new HashMap<CtLocalVariableReference, CtFieldReference>();
+		debug("caching varsToCache inside envClass");
+		varsToCache.stream().forEach(var -> insertCacheField(var, envClass, varMappings));
+		debugHeader("fields of envClass");
+		envClass.getFields().stream().forEach(field -> debug(field.toString()));
+		// create the loopbody method
 
 		
 		// CtMethod loopBodyMethod = getFactory().Core().createMethod();
@@ -89,14 +92,6 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	//========================================================================
 
 	/**
-	* Transforms the body of a loop so it can be written into a method of a local class
-	*/
-	private CtStatement processLoopBodyWithoutReturn(CtStatement originalLoopBody) {
-		//TODO: Implement
-		return originalLoopBody;
-	}
-
-	/**
 	* Returns true if the body of "loop" includes a return statement, false otherwise
 	*/
 	private boolean checkForReturnStatement(CtLoop loop) {
@@ -106,7 +101,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	}
 
 	/**
-	* Returns a Set<CtLocalVariableReference> of all local variables accessed in the body of "loop"
+	* Returns a Set<CtLocalVariableReference> of all non-final local variables accessed in the body of "loop"
 	*/
 	private Set<CtLocalVariableReference> referencedLocalVars(CtLoop loop) {
 		TypeFilter<CtVariableAccess> variableAccess = new TypeFilter<CtVariableAccess>(CtVariableAccess.class);
@@ -115,7 +110,47 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 					.map(access -> access.getVariable())
 					.filter(var -> var instanceof CtLocalVariableReference)
 					.map(var -> (CtLocalVariableReference) var)
+					.filter(var -> !var.getModifiers().contains(ModifierKind.FINAL))
 					.collect(toSet());
+	}
+
+	/**
+	* Creates a uniquely-named internal class in the same class as the given loop
+	*/
+	private CtClass createEnvClass(CtLoop loop) {
+		CtClass declaringClass = loop.getParent(CtClass.class);
+		return getFactory().Class().create(declaringClass, nextEnvName());
+	}
+
+	/**
+	* Generates a unique name for the internal loop environment class
+	*/
+	private String nextEnvName() {
+		loopNumber++; //keeps the names unique
+		return BASE_ENV_CLASS_NAME + TAG_FOR_NAMING + Integer.toString(loopNumber);
+	}
+
+	/**
+	* Creates a CtVariableRead expression of a given variable
+	*/
+	private CtVariableRead readExpressionOf(CtVariableReference var) {
+		CtVariableRead readExpression = getFactory().Core().createVariableRead();
+		readExpression.setVariable(var);
+		return readExpression;
+	}
+
+	/**
+	* Creates a new public field in the given envClass to cache the given varToCache. 
+	* Adds a mapping from varToCache to the new field in the given map.
+	*/
+	private void insertCacheField(CtLocalVariableReference varToCache,
+								CtClass envClass, Map<CtLocalVariableReference, CtFieldReference> varToCacheMap) {
+		String cacheFieldSimpleName = varToCache.getSimpleName() + TAG_FOR_NAMING;
+		CtTypeReference varTypeReference = varToCache.getType();
+		Set<ModifierKind> justPublicModifierSet = new HashSet<ModifierKind>(Arrays.asList(ModifierKind.PUBLIC));
+		CtField cacheField = getFactory().Field().create(envClass, justPublicModifierSet, varTypeReference, cacheFieldSimpleName);
+		debug("adding the following cacheField to the envClass: " + cacheField.toString());
+		varToCacheMap.put(varToCache, cacheField.getReference());
 	}
 
 

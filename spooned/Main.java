@@ -46,5 +46,13 @@ public class Main {
         java.lang.System.out.println(("after looping, we ended up with a GLOBAL x of: " + (Main.globalX)));
         java.lang.System.out.println(("our toy example is now " + y));
     }
+
+    class LoopBodyEnvironment$EXPOSED_JAVA$1 {
+        public int i$EXPOSED_JAVA$;
+
+        public int x$EXPOSED_JAVA$;
+
+        public ToyExample y$EXPOSED_JAVA$;
+    }
 }
 
