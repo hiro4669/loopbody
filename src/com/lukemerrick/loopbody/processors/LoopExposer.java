@@ -1,6 +1,7 @@
 package com.lukemerrick.loopbody.processors;
 
 import static java.util.stream.Collectors.*;
+import java.util.function.Function;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Set;
@@ -9,6 +10,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Collections;
 import spoon.processing.AbstractProcessor;
 import spoon.reflect.code.*;
 import spoon.reflect.visitor.filter.*;
@@ -28,6 +30,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	private final boolean DEBUG_MODE = true;
 	private final String TAG_FOR_NAMING = "$EXPOSED_JAVA$";
 	private final String BASE_ENV_CLASS_NAME = "LoopBodyEnvironment";
+	private final Set<ModifierKind> JUST_PUBLIC_MODIFIER_SET = new HashSet<ModifierKind>(Arrays.asList(ModifierKind.PUBLIC));
 	private static int loopNumber = 0;
 
 	// Step 1: pick a loop
@@ -36,8 +39,13 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		debug("Contents:\n\"" + element + "\"");
 		// Step 2: identify if a return statment exists
 		boolean hasReturnStatement = checkForReturnStatement(element);
+		Set<CtTypeReference> exceptionTypes = getExceptionTypes(element);
 		debug("return statment exists: " + hasReturnStatement);
-		debugNewline();
+		debugHeader("thrown types:");
+		exceptionTypes.stream().forEach(x -> debug(x.toString()));
+
+		// debugHeader("elements of loop:");
+		// element.getElements(new TypeFilter(CtElement.class)).stream().forEach(x -> debug(x.getClass().getName()));
 
 		// Step 3: identify all local variables accessed within the loop
 		Set<CtLocalVariableReference> varsToCache = referencedLocalVars(element); 
@@ -46,13 +54,28 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		debugNewline();
 
 		// Step 4: create internal class 
+		// generating the class and cache fields
 		debug("creating internal envClass");
 		CtClass envClass = createEnvClass(element);
 		HashMap<CtLocalVariableReference, CtFieldReference> varMappings = new HashMap<CtLocalVariableReference, CtFieldReference>();
 		debug("caching varsToCache inside envClass");
-		varsToCache.stream().forEach(var -> insertCacheField(var, envClass, varMappings));
+		List<CtFieldReference>  cacheFields = 
+			varsToCache.stream()
+						.map(var -> generateFieldInEnvClass(var, envClass, varMappings))
+						.collect(toList());
+
+		// debug readout
 		debugHeader("fields of envClass");
 		envClass.getFields().stream().forEach(field -> debug(field.toString()));
+
+		// making the constructor
+		List<CtParameter> constuctorParams = cacheFields.stream()
+														.map(this::generateParam)
+														.collect(toList());
+		// CtConstructor envClassConstructor = getFactory().Constructor()
+		// 	.create(envClass, JUST_PUBLIC_MODIFIER_SET, constuctorParams, 
+		// 			Collections.<CtTypeReference>emptySet(), envConstructorBody);
+		
 		// create the loopbody method
 
 		
@@ -101,6 +124,36 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	}
 
 	/**
+	* Returns a set of types of all exceptions that can be thrown in the given loop
+	*/
+	private Set<CtTypeReference> getExceptionTypes(CtLoop loop) {
+		// create list of all throwable 
+		TypeFilter<CtExecutableReference> executableFilter = new TypeFilter<>(CtExecutableReference.class);
+
+		// the following function intelligently retrieves the executable's declaration
+		// and then applies the "getThrownTypes" function on that CtExecutable object
+		Function<CtExecutableReference, Set<CtTypeReference<? extends Throwable>>> smartGetThrownTypes = ref -> 
+		{
+			CtExecutable executable = ref.getDeclaration();
+			// if getDeclaration returns null, then we know that we're looking at something external and need to use getExecutableDeclaration
+			if (executable == null)
+				executable = ref.getExecutableDeclaration();
+			debug("finding thrown types for declaration: " + executable.toString());
+			debug("thrown types: " + executable.getThrownTypes().toString() + " (count " + executable.getThrownTypes().size() + ")");
+			return executable.getThrownTypes();
+		};
+
+		return loop.getBody().getElements(executableFilter)
+					.stream() // stream of CtExecutable elements
+					.map(smartGetThrownTypes) // stream of many Set<CtTypeReference>
+					.flatMap(Set::<CtTypeReference>stream) // stream of CtTypeReference
+					.collect(toSet()); // single Set<CtTypeReference>
+
+
+		// return Collections.<CtTypeReference>emptySet();
+	}
+
+	/**
 	* Returns a Set<CtLocalVariableReference> of all non-final local variables accessed in the body of "loop"
 	*/
 	private Set<CtLocalVariableReference> referencedLocalVars(CtLoop loop) {
@@ -142,15 +195,26 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	/**
 	* Creates a new public field in the given envClass to cache the given varToCache. 
 	* Adds a mapping from varToCache to the new field in the given map.
+	* Returns a reference to the created cache.
 	*/
-	private void insertCacheField(CtLocalVariableReference varToCache,
+	private CtFieldReference generateFieldInEnvClass(CtLocalVariableReference varToCache,
 								CtClass envClass, Map<CtLocalVariableReference, CtFieldReference> varToCacheMap) {
 		String cacheFieldSimpleName = varToCache.getSimpleName() + TAG_FOR_NAMING;
 		CtTypeReference varTypeReference = varToCache.getType();
-		Set<ModifierKind> justPublicModifierSet = new HashSet<ModifierKind>(Arrays.asList(ModifierKind.PUBLIC));
-		CtField cacheField = getFactory().Field().create(envClass, justPublicModifierSet, varTypeReference, cacheFieldSimpleName);
-		debug("adding the following cacheField to the envClass: " + cacheField.toString());
+		CtField cacheField = getFactory().Field().create(envClass, JUST_PUBLIC_MODIFIER_SET, varTypeReference, cacheFieldSimpleName);
 		varToCacheMap.put(varToCache, cacheField.getReference());
+		return cacheField.getReference();
+	}
+
+	/**
+	* Creates a parameter used to take an initial value for the field "fieldToSet"
+	* Parameter has the same simple name as the field to set.
+	*/
+	private CtParameter generateParam(CtFieldReference fieldToSet) {
+		CtParameter param = getFactory().Core().createParameter();
+		param.setSimpleName(fieldToSet.getSimpleName());
+		param.setType(fieldToSet.getType());
+		return param;
 	}
 
 
@@ -163,6 +227,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	private void debugHeader(String header) {
 		if (!DEBUG_MODE)
 			return;
+		debugNewline();
 		System.out.println("-------" + header + "-------");
 	}
 	private void debugNewline() {
