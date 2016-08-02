@@ -37,9 +37,19 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	public void process(CtLoop element) {
 		debugHeader("Processing Loop");
 		debug("Contents:\n\"" + element + "\"");
-		// Step 2: identify if a return statment exists
+		// Step 2a: identify if a return statment exists
 		boolean hasReturnStatement = checkForReturnStatement(element);
-		Set<CtTypeReference> exceptionTypes = getExceptionTypes(element);
+
+		// Step 2b: identify exception types 
+		Set<CtTypeReference<? extends Throwable>> exceptionTypes = getExceptionTypes(element);
+			// element
+			// .getElements(new TypeFilter<>(CtExecutableReference.class))
+			// .<CtExecutableReference>stream()
+			// .map(this::execFromReference)
+			// .map(this::getExceptionTypes)
+			// .flatMap(Set::stream)
+			// .collect(toSet());
+		debugNewline();
 		debug("return statment exists: " + hasReturnStatement);
 		debugHeader("thrown types:");
 		exceptionTypes.stream().forEach(x -> debug(x.toString()));
@@ -123,34 +133,49 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		return !retStatementList.isEmpty();
 	}
 
+
+	private CtExecutable execFromReference(CtExecutableReference ref) {
+		CtExecutable executable = ref.getDeclaration();
+		// if getDeclaration returns null, then we know that we're looking at something external and need to use getExecutableDeclaration
+		if (executable == null)
+			executable = ref.getExecutableDeclaration();
+		return executable;
+	}
+
+	private String shorten(String str, int len) {
+		return str.substring(0, Math.min(len, str.length()));
+	}
+	
 	/**
 	* Returns a set of types of all exceptions that can be thrown in the given loop
 	*/
-	private Set<CtTypeReference> getExceptionTypes(CtLoop loop) {
-		// create list of all throwable 
-		TypeFilter<CtExecutableReference> executableFilter = new TypeFilter<>(CtExecutableReference.class);
+	private Set<CtTypeReference<? extends Throwable>> getExceptionTypes(CtElement elem) {
+		//start with an empty set
+		Set<CtTypeReference<? extends Throwable>> result = new HashSet<>(Collections.<CtTypeReference<? extends Throwable>>emptySet());
+		// if top level element is itself an executable, add all of its thrown types
+		if (elem instanceof CtExecutableReference) {
+			debug("adding thrown types of " + elem.toString());
+			Set<CtTypeReference<? extends Throwable>> thrownTypes = execFromReference((CtExecutableReference)elem).getThrownTypes();
+			debug("generated thrownTypes; size: " + Integer.toString(thrownTypes.size()));
+			result.addAll(thrownTypes);
+		}
+		// get sub executables
+		List<CtExecutableReference> subExecutables = elem.getElements(new TypeFilter<>(CtExecutableReference.class));
+		subExecutables.remove(elem);
 
-		// the following function intelligently retrieves the executable's declaration
-		// and then applies the "getThrownTypes" function on that CtExecutable object
-		Function<CtExecutableReference, Set<CtTypeReference<? extends Throwable>>> smartGetThrownTypes = ref -> 
-		{
-			CtExecutable executable = ref.getDeclaration();
-			// if getDeclaration returns null, then we know that we're looking at something external and need to use getExecutableDeclaration
-			if (executable == null)
-				executable = ref.getExecutableDeclaration();
-			debug("finding thrown types for declaration: " + executable.toString());
-			debug("thrown types: " + executable.getThrownTypes().toString() + " (count " + executable.getThrownTypes().size() + ")");
-			return executable.getThrownTypes();
-		};
-
-		return loop.getBody().getElements(executableFilter)
-					.stream() // stream of CtExecutable elements
-					.map(smartGetThrownTypes) // stream of many Set<CtTypeReference>
-					.flatMap(Set::<CtTypeReference>stream) // stream of CtTypeReference
-					.collect(toSet()); // single Set<CtTypeReference>
-
-
-		// return Collections.<CtTypeReference>emptySet();
+		// recursively add thrown types from sub executables
+		if (!subExecutables.isEmpty()) {
+			Set<CtTypeReference<? extends Throwable>> subThrownTypes = 
+				subExecutables
+				.stream()
+				.map(this::getExceptionTypes)
+				.flatMap(Set::stream)
+				.collect(toSet());
+			if (subThrownTypes != null)
+				result.addAll(subThrownTypes);
+		}
+		return result;
+		// return Collections.<CtTypeReference>emptySet(); //PLACEHOLDER EMPTY SET
 	}
 
 	/**

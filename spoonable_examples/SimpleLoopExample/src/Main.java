@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class Main {
 	static int globalX = 0;
-	public static void main(String[] args) throws InterruptedException {
+	public static void main(String[] args) throws InterruptedException, ArithmeticException {
 		// constant loop parameters
 		final int STARTING_VAL = 5;
 		final int INC = 2;

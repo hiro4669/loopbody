@@ -7,7 +7,7 @@
 public class Main {
     static int globalX = 0;
 
-    public static void main(java.lang.String[] args) throws java.lang.InterruptedException {
+    public static void main(java.lang.String[] args) throws java.lang.ArithmeticException, java.lang.InterruptedException {
         final int STARTING_VAL = 5;
         final int INC = 2;
         final int N = 11;

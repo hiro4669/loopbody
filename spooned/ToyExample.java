@@ -22,7 +22,7 @@ public class ToyExample {
         return name;
     }
 
-    public void setVal(int x) {
+    public void setVal(int x) throws java.lang.ArithmeticException {
         val = x;
     }
 

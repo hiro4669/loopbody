@@ -12,7 +12,7 @@ public class ToyExample {
 	public String getName() {
 		return name;
 	}
-	public void setVal(int x) {
+	public void setVal(int x) throws ArithmeticException {
 		val = x;
 	}
 	
