@@ -48,6 +48,12 @@ public class Main {
     }
 
     class LoopBodyEnvironment$EXPOSED_JAVA$1 {
+        public LoopBodyEnvironment$EXPOSED_JAVA$1(int i$EXPOSED_JAVA$, int x$EXPOSED_JAVA$, ToyExample y$EXPOSED_JAVA$) {
+            this.i$EXPOSED_JAVA$ = i$EXPOSED_JAVA$;
+            this.x$EXPOSED_JAVA$ = x$EXPOSED_JAVA$;
+            this.y$EXPOSED_JAVA$ = y$EXPOSED_JAVA$;
+        }
+
         public int i$EXPOSED_JAVA$;
 
         public int x$EXPOSED_JAVA$;

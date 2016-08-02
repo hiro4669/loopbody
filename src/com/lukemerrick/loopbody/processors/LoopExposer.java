@@ -32,25 +32,20 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	private final String BASE_ENV_CLASS_NAME = "LoopBodyEnvironment";
 	private final Set<ModifierKind> JUST_PUBLIC_MODIFIER_SET = new HashSet<ModifierKind>(Arrays.asList(ModifierKind.PUBLIC));
 	private static int loopNumber = 0;
+	private final String LOOP_BODY_RET_VAL_NAME = "retValue" + TAG_FOR_NAMING;
 
 	// Step 1: pick a loop
 	public void process(CtLoop element) {
 		debugHeader("Processing Loop");
 		debug("Contents:\n\"" + element + "\"");
 		// Step 2a: identify if a return statment exists
-		boolean hasReturnStatement = checkForReturnStatement(element);
+		boolean loopHasReturnStatement = checkForReturnStatement(element);
 
 		// Step 2b: identify exception types 
 		Set<CtTypeReference<? extends Throwable>> exceptionTypes = getExceptionTypes(element);
-			// element
-			// .getElements(new TypeFilter<>(CtExecutableReference.class))
-			// .<CtExecutableReference>stream()
-			// .map(this::execFromReference)
-			// .map(this::getExceptionTypes)
-			// .flatMap(Set::stream)
-			// .collect(toSet());
+
 		debugNewline();
-		debug("return statment exists: " + hasReturnStatement);
+		debug("return statment exists: " + loopHasReturnStatement);
 		debugHeader("thrown types:");
 		exceptionTypes.stream().forEach(x -> debug(x.toString()));
 
@@ -74,6 +69,11 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 						.map(var -> generateFieldInEnvClass(var, envClass, varMappings))
 						.collect(toList());
 
+		if (loopHasReturnStatement) { //set up a local value to store the return value if there is one
+			CtTypeReference retType = element.getParent(new TypeFilter<CtMethod>(CtMethod.class)).getType();
+			getFactory().Field().create(envClass, JUST_PUBLIC_MODIFIER_SET, retType, LOOP_BODY_RET_VAL_NAME);
+		}
+
 		// debug readout
 		debugHeader("fields of envClass");
 		envClass.getFields().stream().forEach(field -> debug(field.toString()));
@@ -82,20 +82,22 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		List<CtParameter> constuctorParams = cacheFields.stream()
 														.map(this::generateParam)
 														.collect(toList());
-		// CtConstructor envClassConstructor = getFactory().Constructor()
-		// 	.create(envClass, JUST_PUBLIC_MODIFIER_SET, constuctorParams, 
-		// 			Collections.<CtTypeReference>emptySet(), envConstructorBody);
+		CtBlock envConstructorBody = getFactory().Core().createBlock();
+		for (CtFieldReference field : cacheFields) {
+			CtCodeSnippetExpression rhs = getFactory().Code().createCodeSnippetExpression(field.getSimpleName());
+			CtAssignment assignment = getFactory().Code().createVariableAssignment(field, false, rhs);
+			envConstructorBody.insertEnd(assignment);
+		}
 		
-		// create the loopbody method
+		CtConstructor envClassConstructor = getFactory().Core().createConstructor();
+		envClassConstructor.setBody(envConstructorBody);
+		envClassConstructor.setParameters(constuctorParams);
+		envClassConstructor.addModifier(ModifierKind.PUBLIC);
+		envClass.addConstructor(envClassConstructor);
 
-		
-		// CtMethod loopBodyMethod = getFactory().Core().createMethod();
-		// loopBodyMethod.setType(getFactory().Type().BOOLEAN);
-		// if (hasReturnStatement) { //set up a local value to store the return value
-		// 	CtExpression retExpression = retStatementList.get(0).getReturnedExpression();
-		// 	CtLocalVariable retVar = getFactory().Core().createLocalVariable();
-		// 	retVar.setType(retExpression.getType());
-		// }
+		// create the loopbody method		
+		CtMethod loopBodyMethod = getFactory().Core().createMethod();
+		loopBodyMethod.setType(getFactory().Type().BOOLEAN);
 		
 			/* ---- Inner class specifications: -----
 			* -> class-local version of every local variable used in the loop body
@@ -140,10 +142,6 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		if (executable == null)
 			executable = ref.getExecutableDeclaration();
 		return executable;
-	}
-
-	private String shorten(String str, int len) {
-		return str.substring(0, Math.min(len, str.length()));
 	}
 	
 	/**

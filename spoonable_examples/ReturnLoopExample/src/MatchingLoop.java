@@ -12,13 +12,13 @@ public class MatchingLoop {
 		
 	}
 	private static int luckySearch(String target, String[] list) {
-		// -------------- CODE TO TRANSFOR BEGINS HERE -----------
+		// -------------- CODE TO TRANSFORM BEGINS HERE -----------
 		for (int i = 0; i < list.length; i += 3) {
 			System.out.println("[search method] checking position " + i);
 			if (list[i].equals(target))
 				return i;
 		}
-		// -------------- CODE TO TRANSFOR ENDS HERE -----------
+		// -------------- CODE TO TRANSFORM ENDS HERE -----------
 		return -1;
 	}
 }
