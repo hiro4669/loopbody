@@ -14,6 +14,7 @@ public class Main {
         int x = 0;
         ToyExample y = new ToyExample(1, "example object");
         Main.prePrinting(y);
+        Main.LoopBodyEnvironment$EXPOSED_JAVA$1 $envObject$$EXPOSED_JAVA$ = new Main.LoopBodyEnvironment$EXPOSED_JAVA$1(i, x, y);
         for (int i = 0; i < N; i++) {
             if (i == 0) {
                 x = STARTING_VAL;
@@ -59,6 +60,28 @@ public class Main {
         public int x$EXPOSED_JAVA$;
 
         public ToyExample y$EXPOSED_JAVA$;
+
+        public java.lang.Boolean loopBody$EXPOSED_JAVA$(java.lang.Integer $loopIterator$$EXPOSED_JAVA$) throws java.lang.ArithmeticException, java.lang.InterruptedException {
+            {
+                if (i == 0) {
+                    x = STARTING_VAL;
+                    Main.globalX = STARTING_VAL;
+                } 
+                if (i == 2) {
+                    java.lang.System.out.println("skipping third iteration");
+                    continue;
+                } 
+                if (i >= (N / 2)) {
+                    java.lang.System.out.println(("breaking at i = " + i));
+                    break;
+                } 
+                x += INC;
+                Main.globalX += INC;
+                y.setVal(x);
+                java.lang.System.out.println(((("after iteration " + (i + 1)) + " x is: ") + x));
+                java.util.concurrent.TimeUnit.MILLISECONDS.sleep(300);
+            }
+        }
     }
 }
 
