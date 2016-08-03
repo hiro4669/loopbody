@@ -83,7 +83,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		envClass.addConstructor(envConstructor);
 
 		// create the loopbody method
-		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings);
+		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings, loopHasReturnStatement, retType);
 		CtMethod loopBodyMethod = getFactory().Method().create(
 			envClass,
 			JUST_PUBLIC_MODIFIER_SET,
@@ -158,7 +158,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	}
 	
 	// (first we copy the raw body of the loop)
-	private CtBlock makeLoopBodyMethodBlock(CtLoop loop, Map<CtLocalVariableReference, CtFieldReference> varMappings) {
+	private CtBlock makeLoopBodyMethodBlock(CtLoop loop, Map<CtLocalVariableReference, CtFieldReference> varMappings, boolean loopHasReturnStatement, CtTypeReference retType) {
 		CtStatement loopBody = loop.getBody().clone();
 		// replace variable accesses with accesses to the cached vars
 		for (CtVariableAccess varAccess : loopBody.getElements(new TypeFilter<CtVariableAccess>(CtVariableAccess.class))) {
@@ -168,16 +168,44 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 				debug("TODO: replace access \"" + varAccess.toString() + "\" with a var access to the field: " + "\"" + cached.toString() +  "\"");
 			}
 		}
-
+		CtLiteral trueLiteral = getFactory().Core().createLiteral();
+		trueLiteral.setValue(true);
+		CtLiteral falseLiteral = getFactory().Core().createLiteral();
+		falseLiteral.setValue(false);
+		CtReturn retTrue = getFactory().Core().createReturn();
+		retTrue.setReturnedExpression(trueLiteral);
+		CtReturn retFalse = getFactory().Core().createReturn();
+		retFalse.setReturnedExpression(falseLiteral);
 		// TODO: replace continue statements with "return false"
-
+		for (CtContinue c : loopBody.getElements(new TypeFilter<CtContinue>(CtContinue.class)))
+			c.replace(retFalse);
 		// TODO: replace break statements with "return true"
-
-		// TODO: replace return statements with setting "retVal" and "return true"
-
+		for (CtBreak b : loopBody.getElements(new TypeFilter<CtBreak>(CtBreak.class)))
+			b.replace(retTrue);
+		if (loopHasReturnStatement) {
+			// TODO: replace return statements with setting "retVal" and "return true"
+			for (CtReturn r : loopBody.getElements(new TypeFilter<CtReturn>(CtReturn.class))) {
+				CtAssignment substituteReturnStatmenet = setRetVar(r, retType);
+				r.replace(substituteReturnStatmenet);
+				substituteReturnStatmenet.insertAfter(retTrue);
+			}
+		}
 		CtBlock loopBodyMethodBody = getFactory().Core().createBlock();
 		loopBodyMethodBody.insertBegin(loopBody);
 		return loopBodyMethodBody;
+	}
+
+	/**
+	* Creates an assignment statement of the retVar variable to duplicate the functionality
+	* of the given return statement
+	*/
+	private CtAssignment setRetVar(CtReturn r, CtTypeReference retType) {
+		CtVariableReference retValRef = getFactory().Code().createLocalVariableReference(retType, LOOP_BODY_RET_VAL_NAME);
+		CtVariableAccess retVal = getFactory().Code().createVariableRead(retValRef, false);
+		CtAssignment a = getFactory().Core().createAssignment();
+		a.setAssigned(retVal);
+		a.setAssignment(r.getReturnedExpression());
+		return a;
 	}
 
 
