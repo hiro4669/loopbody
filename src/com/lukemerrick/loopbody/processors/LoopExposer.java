@@ -34,82 +34,60 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	private static int loopNumber = 0;
 	private final String LOOP_BODY_RET_VAL_NAME = "retValue" + TAG_FOR_NAMING;
 	private final String LOOP_BODY_METHOD_NAME = "loopBody" + TAG_FOR_NAMING;
-	private final String LOOP_BODY_METHOD_PARAMETER_NAME = "$loopIterator$" + TAG_FOR_NAMING;
+	private final String LOOP_BODY_METHOD_COUNTER_NAME = "$loopIterator$" + TAG_FOR_NAMING;
 	private final String ENV_OBJECT_NAME = "$envObject$" + TAG_FOR_NAMING;
 	private enum LoopType {WHILE, DO, FOR, FOR_EACH, OTHER}
 
 	// Step 1: pick a loop
 	public void process(CtLoop element) {
-		debugHeader("Processing Loop");
-		debug("Contents:\n\"" + element + "\"");
+		debugHeader("Processing Loop"); debug("Contents:\n\"" + element + "\"");
 
 		// Step 2: determine loop info
 		boolean loopHasReturnStatement = checkForReturnStatement(element);
 		CtTypeReference retType = loopHasReturnStatement ? parentMethod(element).getType() : null;
 		Set<CtTypeReference<? extends Throwable>> exceptionTypes = parentMethod(element).getThrownTypes();
-		debugNewline();
-		debug("loop type: " + getType(element));
-		debug("return statment exists: " + loopHasReturnStatement);
+
+		debugNewline(); debug("loop type: " + getType(element)); debug("return statment exists: " + loopHasReturnStatement);
 		if (loopHasReturnStatement) debug("return type: " + retType.toString());
-		debugHeader("thrown types:");
-		exceptionTypes.stream().forEach(x -> debug(x.toString()));
+		debugHeader("thrown types:"); exceptionTypes.stream().forEach(x -> debug(x.toString()));
 
 		// Step 3: identify all local variables accessed within the loop
-		Set<CtLocalVariableReference> varsToCache = referencedLocalVars(element);
-		List<CtLocalVariableReference> orderedVarsToCache = new ArrayList<CtLocalVariableReference>();
-		orderedVarsToCache.addAll(varsToCache);
-		debugHeader("local variables to cache");
-		orderedVarsToCache.stream().forEach(a -> debug(a.toString()));
-		debugNewline();
+		List<CtLocalVariableReference> varsToCache = new ArrayList<CtLocalVariableReference>(referencedLocalVars(element));
+		debugHeader("local variables to cache"); varsToCache.stream().forEach(a -> debug(a.toString())); debugNewline();
 
 		// Step 4: create internal class 
 		// make class declaration
-		debug("creating internal envClass");
 		CtClass envClass = createEnvClass(element);
 		HashMap<CtLocalVariableReference, CtFieldReference> varMappings = new HashMap<CtLocalVariableReference, CtFieldReference>();
-		debug("caching orderedVarsToCache inside envClass");
 		// add fields
-		List<CtFieldReference>  cacheFields = 
-			orderedVarsToCache.stream()
-						.map(var -> generateFieldInEnvClass(var, envClass, varMappings))
-						.collect(toList());
+		List<CtFieldReference>  cacheFields = varsToCache.stream()
+														.map(var -> generateFieldInEnvClass(var, envClass, varMappings))
+														.collect(toList());
 		if (loopHasReturnStatement) //set up a local value to store the return value if there is one
 			getFactory().Field().create(envClass, JUST_PUBLIC_MODIFIER_SET, retType, LOOP_BODY_RET_VAL_NAME);
-		debugHeader("fields of envClass");
-		envClass.getFields().stream().forEach(field -> debug(field.toString()));
-		debugNewline();
+		
+		debugHeader("fields of envClass"); envClass.getFields().stream().forEach(field -> debug(field.toString())); debugNewline();
+		
 		// make the constructor
 		CtConstructor envConstructor = makeEnvConstructor(cacheFields);
 		envClass.addConstructor(envConstructor);
 
 		// create the loopbody method
 		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings, loopHasReturnStatement, retType);
-		CtMethod loopBodyMethod = getFactory().Method().create(
-			envClass,
-			JUST_PUBLIC_MODIFIER_SET,
-			getFactory().Type().BOOLEAN,
-			LOOP_BODY_METHOD_NAME,
-			makeLoopBodyMethodParams(element),
-			exceptionTypes,
-			loopBodyMethodBody
-		);
-		// TODO Step 5: create environement-object initialization statment
-		List<CtExpression<?>> constructorArgs = new ArrayList<>();
-		orderedVarsToCache.stream()
-							.forEach(var -> constructorArgs.add(getFactory().Code().createVariableRead(var, false)));
-		CtTypeReference classType = ((CtType)envClass).getReference();
-		CtConstructorCall initialization = getFactory().Core().createConstructorCall();
-		initialization.setType(classType);
-		initialization.setExecutable(envConstructor.getReference());
-		initialization.setArguments(constructorArgs);
-		CtLocalVariable envClassInstance = getFactory().Code().createLocalVariable(
-			classType,
-			ENV_OBJECT_NAME,
-			initialization
-		);
-		element.insertBefore(envClassInstance);
+		CtMethod loopBodyMethod =
+			getFactory().Method().create(envClass, JUST_PUBLIC_MODIFIER_SET,getFactory().Type().BOOLEAN,
+											LOOP_BODY_METHOD_NAME,makeLoopBodyMethodParams(element),
+											exceptionTypes, loopBodyMethodBody);
 
-		// TODO Step 6: Generate loop
+		// Step 5: create environement-object initialization statment
+		element.insertBefore(initializeEnvironment(element, varsToCache, envClass, envConstructor));
+
+		// TODO Step 6: Generate new loop body, replace
+		// List<CtExpression> loopBodyActualParams = new ArrayList<>();
+		// if (loopType(element) == LoopType.FOR)
+
+		// CtExpression runLoopBody = getFactory().Code().createInvocation(envClass, loopBodyMethod.getReference(), );
+		// CtBlock newLoopBody = getFactory().Core().createBlock();
 			/* 
 			* -> appropriate type (for, while, do-while)
 			* -> call loop body function
@@ -140,21 +118,34 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	}
 
 	private List<CtParameter<?>> makeLoopBodyMethodParams (CtLoop loop) {
-		// create iteration index parameter for the method
-		CtParameter<Integer> iteratorParam = getFactory().Core().createParameter();
-		iteratorParam.setSimpleName(LOOP_BODY_METHOD_PARAMETER_NAME);
-		iteratorParam.setType(getFactory().Type().INTEGER);
-		List<CtParameter<?>> loopBodyMethodParams = Arrays.asList(iteratorParam);
-
-		// TODO: also handle for loops that don't use a simple integer to iterate
-		// replace for loop iteration index with the new parameter of this method
-		if (getType(loop) == LoopType.FOR) {
-			CtFor forLoop = (CtFor) loop;
-			List<CtStatement> forInitStatements = forLoop.getForInit();
-			forInitStatements.get(0);
+		// add a counter for better exposure
+		CtParameter<Integer> counter = getFactory().Core().createParameter();
+		counter.setSimpleName(LOOP_BODY_METHOD_COUNTER_NAME);
+		counter.setType(getFactory().Type().INTEGER);
+		List<CtParameter<?>> loopBodyMethodParams = new ArrayList<>(Arrays.asList(counter));
+		if (getType(loop) == LoopType.FOR) { //also pass along the value from for loop
+			CtLocalVariable iteratorDeclaration = (CtLocalVariable)((CtFor)loop).getForInit().get(0);
+			CtParameter iteratorParam = getFactory().Core().createParameter();
+			//debug("HERE: " + forInitStatements.get(0).getClass().getName());
 			//TODO: finish this
 		}
 		return loopBodyMethodParams;
+	}
+	CtLocalVariable initializeEnvironment(CtLoop loop, Iterable<CtLocalVariableReference> varsToCache, CtClass envClass, CtConstructor envConstructor) {
+		List<CtExpression<?>> constructorArgs = new ArrayList<>();
+		for(CtVariableReference var: varsToCache)
+			constructorArgs.add(getFactory().Code().createVariableRead(var, false));
+		CtTypeReference classType = ((CtType)envClass).getReference();
+		CtConstructorCall initialization = getFactory().Core().createConstructorCall();
+		initialization.setType(classType);
+		initialization.setExecutable(envConstructor.getReference());
+		initialization.setArguments(constructorArgs);
+		return getFactory().Code().createLocalVariable(
+			classType,
+			ENV_OBJECT_NAME,
+			initialization
+		);
+
 	}
 	
 	// (first we copy the raw body of the loop)
@@ -176,14 +167,14 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		retTrue.setReturnedExpression(trueLiteral);
 		CtReturn retFalse = getFactory().Core().createReturn();
 		retFalse.setReturnedExpression(falseLiteral);
-		// TODO: replace continue statements with "return false"
+		// replace continue statements with "return false"
 		for (CtContinue c : loopBody.getElements(new TypeFilter<CtContinue>(CtContinue.class)))
 			c.replace(retFalse);
-		// TODO: replace break statements with "return true"
+		// replace break statements with "return true"
 		for (CtBreak b : loopBody.getElements(new TypeFilter<CtBreak>(CtBreak.class)))
 			b.replace(retTrue);
 		if (loopHasReturnStatement) {
-			// TODO: replace return statements with setting "retVal" and "return true"
+			// replace return statements with setting "retVal" and "return true"
 			for (CtReturn r : loopBody.getElements(new TypeFilter<CtReturn>(CtReturn.class))) {
 				CtAssignment substituteReturnStatmenet = setRetVar(r, retType);
 				r.replace(substituteReturnStatmenet);
