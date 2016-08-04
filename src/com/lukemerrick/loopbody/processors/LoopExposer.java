@@ -34,12 +34,14 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	private static int loopNumber = 0;
 	private final String LOOP_BODY_RET_VAL_NAME = "retValue" + TAG_FOR_NAMING;
 	private final String LOOP_BODY_METHOD_NAME = "loopBody" + TAG_FOR_NAMING;
-	private final String LOOP_BODY_METHOD_COUNTER_NAME = "$loopIterator$" + TAG_FOR_NAMING;
 	private final String ENV_OBJECT_NAME = "$envObject$" + TAG_FOR_NAMING;
 	private enum LoopType {WHILE, DO, FOR, FOR_EACH, OTHER}
 
 	// Step 1: pick a loop
 	public void process(CtLoop element) {
+		if (getType(element) == LoopType.FOR_EACH) return; // currently FOR_EACH are not supported
+		if (getType(element) == LoopType.WHILE) return; // currently WHILE are not supported
+		if (getType(element) == LoopType.DO) return; // currently DO are not supported
 		debugHeader("Processing Loop"); debug("Contents:\n\"" + element + "\"");
 
 		// Step 2: determine loop info
@@ -53,50 +55,106 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 
 		// Step 3: identify all local variables accessed within the loop
 		List<CtLocalVariableReference> varsToCache = new ArrayList<CtLocalVariableReference>(referencedLocalVars(element));
+		if (getType(element) == LoopType.FOR) // we don't cache this, instead we pass it as a parameter
+			varsToCache.remove(getIteratorVariable((CtFor)element));
 		debugHeader("local variables to cache"); varsToCache.stream().forEach(a -> debug(a.toString())); debugNewline();
 
 		// Step 4: create internal class 
 		// make class declaration
 		CtClass envClass = createEnvClass(element);
+
+		// for naming reasons, we create the loop count variable here
+		CtLocalVariable counterVar = getFactory().Code().createLocalVariable(
+														getFactory().Type().INTEGER, 
+														"$counter_of$" + envClass.getSimpleName(), 
+														getFactory().Code().createLiteral(0));
+		element.insertBefore(counterVar);
+
 		HashMap<CtLocalVariableReference, CtFieldReference> varMappings = new HashMap<CtLocalVariableReference, CtFieldReference>();
 		// add fields
 		List<CtFieldReference>  cacheFields = varsToCache.stream()
 														.map(var -> generateFieldInEnvClass(var, envClass, varMappings))
 														.collect(toList());
+		CtVariableReference retValRef = null;
 		if (loopHasReturnStatement) //set up a local value to store the return value if there is one
-			getFactory().Field().create(envClass, JUST_PUBLIC_MODIFIER_SET, retType, LOOP_BODY_RET_VAL_NAME);
+			retValRef = getFactory().Field().create(envClass, JUST_PUBLIC_MODIFIER_SET, retType, LOOP_BODY_RET_VAL_NAME).getReference();
 		
 		debugHeader("fields of envClass"); envClass.getFields().stream().forEach(field -> debug(field.toString())); debugNewline();
-		
-		// make the constructor
-		CtConstructor envConstructor = makeEnvConstructor(cacheFields);
-		envClass.addConstructor(envConstructor);
 
 		// create the loopbody method
-		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings, loopHasReturnStatement, retType);
-		CtMethod loopBodyMethod =
-			getFactory().Method().create(envClass, JUST_PUBLIC_MODIFIER_SET,getFactory().Type().BOOLEAN,
-											LOOP_BODY_METHOD_NAME,makeLoopBodyMethodParams(element),
+		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings, loopHasReturnStatement, retValRef);
+		CtMethod loopBodyMethod = getFactory().Method().create(
+											envClass, JUST_PUBLIC_MODIFIER_SET,getFactory().Type().BOOLEAN,
+											LOOP_BODY_METHOD_NAME,makeLoopBodyMethodParams(element, counterVar.getReference()),
 											exceptionTypes, loopBodyMethodBody);
 
-		// Step 5: create environement-object initialization statment
-		element.insertBefore(initializeEnvironment(element, varsToCache, envClass, envConstructor));
+		// Step 5: create environment-object initialization statment
+		CtLocalVariable envInit = initializeEnvironment(envClass);
+		element.insertBefore(envInit);
 
-		// TODO Step 6: Generate new loop body, replace
-		// List<CtExpression> loopBodyActualParams = new ArrayList<>();
-		// if (loopType(element) == LoopType.FOR)
+		// TODO: clean up!
+		for(CtVariableReference var : varsToCache) {
+			// CtCodeSnippetExpression rhs = getFactory().Code().createCodeSnippetExpression(var.getSimpleName());
+			// CtCodeSnippetExpression lhs = getFactory().Code().createCodeSnippetExpression(envInit.getSimpleName() + "." + var.getSimpleName());
+			// CtAssignment assignment = getFactory().Code().createVariableAssignment(varMappings.get(var), false, rhs);
+			CtCodeSnippetStatement a = getFactory().Code().createCodeSnippetStatement(envInit.getSimpleName() + "." + var.getSimpleName() + " = " + var.getSimpleName());
+			element.insertBefore(a);
+		}
 
-		// CtExpression runLoopBody = getFactory().Code().createInvocation(envClass, loopBodyMethod.getReference(), );
-		// CtBlock newLoopBody = getFactory().Core().createBlock();
-			/* 
-			* -> appropriate type (for, while, do-while)
-			* -> call loop body function
-			* -> if return type true, check for return value
-			* -> before returning or breaking, uncache local variables
-			* 	--> if return value, return it, otherwise break
-			*/
+		// Step 6: Generate new loop body, replace
+		CtBlock newLoopBody = getFactory().Core().createBlock();
+
+		// increment the counter
+		CtExpression<?> counterAccessExp = getFactory().Code().createVariableRead(counterVar.getReference(), false);
+		CtUnaryOperator incrementCounter = getFactory().Core().createUnaryOperator();
+		incrementCounter.setOperand(counterAccessExp);
+		incrementCounter.setKind(UnaryOperatorKind.POSTINC);
+		newLoopBody.insertBegin(incrementCounter);
+
+		// run the loopbody method and act upon the results
+		List<CtExpression<?>> loopBodyActualParams = new ArrayList<CtExpression<?>>(Arrays.asList(counterAccessExp));
+		if (getType(element) == LoopType.FOR)
+			loopBodyActualParams.add(getFactory().Code().createVariableRead(getIteratorVariable((CtFor)element), false));
+		CtExpression<Boolean> runLoopBody = getFactory().Code().createInvocation(
+												getFactory().Code().createVariableRead(envInit.getReference(), false),
+												loopBodyMethod.getReference(),
+												loopBodyActualParams);
+		
+		CtStatement breakProcedure = getFactory().Core().createBreak();
+		CtIf mainIf = getFactory().Core().createIf();
+		mainIf.setCondition(runLoopBody);
+
+		if (loopHasReturnStatement) {
+			CtVariableAccess retValAccess = getFactory().Code().createVariableRead(retValRef, false);
+			CtBinaryOperator retValNull = getFactory().Core().createBinaryOperator();
+			retValNull.setKind(BinaryOperatorKind.EQ);
+			retValNull.setLeftHandOperand(retValAccess);
+			retValNull.setRightHandOperand(getFactory().Code().createLiteral(null));
+			CtBlock returnProcedure = getFactory().Core().createBlock();
+			CtReturn returnStatement = getFactory().Core().createReturn();
+			returnStatement.setReturnedExpression(retValAccess);
+			returnProcedure.insertEnd(returnStatement);
+			CtIf ifBreak = getFactory().Core().createIf();
+			ifBreak.setCondition(retValNull);
+			ifBreak.setThenStatement(breakProcedure);
+			ifBreak.setElseStatement(returnProcedure);
+			mainIf.setThenStatement(ifBreak);
+		}
+		else
+			mainIf.setThenStatement(breakProcedure);
+
+		newLoopBody.insertEnd(mainIf);
+		element.setBody(newLoopBody);
+		
+		
 		// TODO Step 7: After loop, uncache variables 
 		// 				through the injection of assignment statements
+		for (CtLocalVariableReference var : varsToCache) {
+			CtExpression rhs = getFactory().Code().createCodeSnippetExpression(envInit.getSimpleName() + "." + var.getSimpleName());
+			CtAssignment assignment = getFactory().Code().createVariableAssignment(var, false, rhs);
+			element.insertAfter(assignment);
+		}
+
 		System.out.println("");
 	}
 
@@ -117,52 +175,62 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		return LoopType.OTHER;
 	}
 
-	private List<CtParameter<?>> makeLoopBodyMethodParams (CtLoop loop) {
+	/**
+	* Returns a reference to the variable declaration inside the given for statement.
+	* for example, given loop = "for(int i = 0; i < 10; i++)...", this method returns a reference to "i"
+	*/
+	private CtLocalVariableReference getIteratorVariable (CtFor loop) {
+		return ((CtLocalVariable)loop.getForInit().get(0)).getReference();
+	}
+
+	/**
+	* Creates the parameters for the loop body method:
+	* 0) integer counter that tracks how many iterations have passed
+	* 1) [FOR LOOP ONLY] the variable initialized in the for statment
+	*/
+	private List<CtParameter<?>> makeLoopBodyMethodParams (CtLoop loop, CtVariableReference counterRef) {
 		// add a counter for better exposure
-		CtParameter<Integer> counter = getFactory().Core().createParameter();
-		counter.setSimpleName(LOOP_BODY_METHOD_COUNTER_NAME);
-		counter.setType(getFactory().Type().INTEGER);
+		CtParameter<Integer> counter = generateParam(counterRef);
 		List<CtParameter<?>> loopBodyMethodParams = new ArrayList<>(Arrays.asList(counter));
-		if (getType(loop) == LoopType.FOR) { //also pass along the value from for loop
-			CtLocalVariable iteratorDeclaration = (CtLocalVariable)((CtFor)loop).getForInit().get(0);
-			CtParameter iteratorParam = getFactory().Core().createParameter();
-			//debug("HERE: " + forInitStatements.get(0).getClass().getName());
-			//TODO: finish this
+		if (getType(loop) == LoopType.FOR) { //also pass along the value from for loop iterator
+			CtLocalVariableReference iteratorVariable = getIteratorVariable((CtFor)loop);
+			loopBodyMethodParams.add(generateParam(iteratorVariable));
 		}
 		return loopBodyMethodParams;
 	}
-	CtLocalVariable initializeEnvironment(CtLoop loop, Iterable<CtLocalVariableReference> varsToCache, CtClass envClass, CtConstructor envConstructor) {
-		List<CtExpression<?>> constructorArgs = new ArrayList<>();
-		for(CtVariableReference var: varsToCache)
-			constructorArgs.add(getFactory().Code().createVariableRead(var, false));
+
+	/**
+	* Returns the local variable declaration to initialize an object of class envClass
+	*/
+	CtLocalVariable initializeEnvironment(CtClass envClass) {
 		CtTypeReference classType = ((CtType)envClass).getReference();
 		CtConstructorCall initialization = getFactory().Core().createConstructorCall();
 		initialization.setType(classType);
-		initialization.setExecutable(envConstructor.getReference());
-		initialization.setArguments(constructorArgs);
+		CtConstructor defaultConstructor = getFactory().Constructor().createDefault(envClass);
+		defaultConstructor.setBody(getFactory().Core().createBlock());
+		initialization.setExecutable(defaultConstructor.getReference());
 		return getFactory().Code().createLocalVariable(
 			classType,
-			ENV_OBJECT_NAME,
+			"$initialized$" + envClass.getSimpleName(),
 			initialization
 		);
 
 	}
 	
 	// (first we copy the raw body of the loop)
-	private CtBlock makeLoopBodyMethodBlock(CtLoop loop, Map<CtLocalVariableReference, CtFieldReference> varMappings, boolean loopHasReturnStatement, CtTypeReference retType) {
+	private CtBlock makeLoopBodyMethodBlock(CtLoop loop, Map<CtLocalVariableReference, CtFieldReference> varMappings, boolean loopHasReturnStatement, CtVariableReference retValRef) {
 		CtStatement loopBody = loop.getBody().clone();
-		// replace variable accesses with accesses to the cached vars
-		for (CtVariableAccess varAccess : loopBody.getElements(new TypeFilter<CtVariableAccess>(CtVariableAccess.class))) {
-			CtVariableReference var = varAccess.getVariable();
-			if(varMappings.containsKey(var)) {
-				CtFieldReference cached = varMappings.get(var);
-				debug("TODO: replace access \"" + varAccess.toString() + "\" with a var access to the field: " + "\"" + cached.toString() +  "\"");
-			}
-		}
-		CtLiteral trueLiteral = getFactory().Core().createLiteral();
-		trueLiteral.setValue(true);
-		CtLiteral falseLiteral = getFactory().Core().createLiteral();
-		falseLiteral.setValue(false);
+		// commented-out code below unnecessary because we have taken a variable hiding approach
+		// // replace variable accesses with accesses to the cached vars
+		// for (CtVariableAccess varAccess : loopBody.getElements(new TypeFilter<CtVariableAccess>(CtVariableAccess.class))) {
+		// 	CtVariableReference var = varAccess.getVariable();
+		// 	if(varMappings.containsKey(var)) {
+		// 		CtFieldReference cached = varMappings.get(var);
+		// 		debug("TODO: replace access \"" + varAccess.toString() + "\" with a var access to the field: " + "\"" + cached.toString() +  "\"");
+		// 	}
+		// }
+		CtLiteral trueLiteral = getFactory().Code().createLiteral(true);
+		CtLiteral falseLiteral = getFactory().Code().createLiteral(false);
 		CtReturn retTrue = getFactory().Core().createReturn();
 		retTrue.setReturnedExpression(trueLiteral);
 		CtReturn retFalse = getFactory().Core().createReturn();
@@ -176,7 +244,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		if (loopHasReturnStatement) {
 			// replace return statements with setting "retVal" and "return true"
 			for (CtReturn r : loopBody.getElements(new TypeFilter<CtReturn>(CtReturn.class))) {
-				CtAssignment substituteReturnStatmenet = setRetVar(r, retType);
+				CtAssignment substituteReturnStatmenet = setRetVar(r, retValRef);
 				r.replace(substituteReturnStatmenet);
 				substituteReturnStatmenet.insertAfter(retTrue);
 			}
@@ -190,8 +258,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	* Creates an assignment statement of the retVar variable to duplicate the functionality
 	* of the given return statement
 	*/
-	private CtAssignment setRetVar(CtReturn r, CtTypeReference retType) {
-		CtVariableReference retValRef = getFactory().Code().createLocalVariableReference(retType, LOOP_BODY_RET_VAL_NAME);
+	private CtAssignment setRetVar(CtReturn r, CtVariableReference retValRef) {
 		CtVariableAccess retVal = getFactory().Code().createVariableRead(retValRef, false);
 		CtAssignment a = getFactory().Core().createAssignment();
 		a.setAssigned(retVal);
@@ -260,7 +327,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	*/
 	private String nextEnvName() {
 		loopNumber++; //keeps the names unique
-		return BASE_ENV_CLASS_NAME + TAG_FOR_NAMING + Integer.toString(loopNumber);
+		return BASE_ENV_CLASS_NAME + Integer.toString(loopNumber) + TAG_FOR_NAMING;
 	}
 
 	/**
@@ -279,7 +346,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	*/
 	private CtFieldReference generateFieldInEnvClass(CtLocalVariableReference varToCache,
 								CtClass envClass, Map<CtLocalVariableReference, CtFieldReference> varToCacheMap) {
-		String cacheFieldSimpleName = varToCache.getSimpleName() + TAG_FOR_NAMING;
+		String cacheFieldSimpleName = varToCache.getSimpleName();
 		CtTypeReference varTypeReference = varToCache.getType();
 		CtField cacheField = getFactory().Field().create(envClass, JUST_PUBLIC_MODIFIER_SET, varTypeReference, cacheFieldSimpleName);
 		varToCacheMap.put(varToCache, cacheField.getReference());
@@ -287,17 +354,17 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	}
 
 	/**
-	* Creates a parameter used to take an initial value for the field "fieldToSet"
+	* Creates a parameter used to take an initial value for the field "ref"
 	* Parameter has the same simple name as the field to set.
 	*/
-	private CtParameter generateParam(CtFieldReference fieldToSet) {
+	private CtParameter generateParam(CtVariableReference ref) {
 		CtParameter param = getFactory().Core().createParameter();
-		param.setSimpleName(fieldToSet.getSimpleName());
-		param.setType(fieldToSet.getType());
+		param.setSimpleName(ref.getSimpleName());
+		param.setType(ref.getType());
 		return param;
 	}
 
-
+	/** not used */
 	private CtExecutable execFromReference(CtExecutableReference ref) {
 		CtExecutable executable = ref.getDeclaration();
 		// if getDeclaration returns null, then we know that we're looking at something external and need to use getExecutableDeclaration
