@@ -100,14 +100,14 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		CtLocalVariable envInit = initializeEnvironment(envClass, envConstructor, constructorArgs);
 		element.insertBefore(envInit);
 
-		// TODO: clean up!
-		for(CtVariableReference var : varsToCache) {
-			// CtCodeSnippetExpression rhs = getFactory().Code().createCodeSnippetExpression(var.getSimpleName());
-			// CtCodeSnippetExpression lhs = getFactory().Code().createCodeSnippetExpression(envInit.getSimpleName() + "." + var.getSimpleName());
-			// CtAssignment assignment = getFactory().Code().createVariableAssignment(varMappings.get(var), false, rhs);
-			CtCodeSnippetStatement a = getFactory().Code().createCodeSnippetStatement(envInit.getSimpleName() + "." + var.getSimpleName() + " = " + var.getSimpleName());
-			element.insertBefore(a);
-		}
+		// // TODO: clean up!
+		// for(CtVariableReference var : varsToCache) {
+		// 	// CtCodeSnippetExpression rhs = getFactory().Code().createCodeSnippetExpression(var.getSimpleName());
+		// 	// CtCodeSnippetExpression lhs = getFactory().Code().createCodeSnippetExpression(envInit.getSimpleName() + "." + var.getSimpleName());
+		// 	// CtAssignment assignment = getFactory().Code().createVariableAssignment(varMappings.get(var), false, rhs);
+		// 	CtCodeSnippetStatement a = getFactory().Code().createCodeSnippetStatement(envInit.getSimpleName() + "." + var.getSimpleName() + " = " + var.getSimpleName());
+		// 	element.insertBefore(a);
+		// }
 
 		// Step 6: Generate new loop body, replace
 		CtBlock newLoopBody = getFactory().Core().createBlock();
