@@ -62,6 +62,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		// Step 4: create internal class 
 		// make class declaration
 		CtClass envClass = createEnvClass(element);
+		element.insertBefore(envClass);
 
 		// for naming reasons, we create the loop count variable here
 		CtLocalVariable counterVar = getFactory().Code().createLocalVariable(
@@ -81,6 +82,10 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		
 		debugHeader("fields of envClass"); envClass.getFields().stream().forEach(field -> debug(field.toString())); debugNewline();
 
+		// make the constructor
+		CtConstructor envConstructor = makeEnvConstructor(cacheFields);
+		envClass.addConstructor(envConstructor);
+
 		// create the loopbody method
 		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings, loopHasReturnStatement, retValRef);
 		CtMethod loopBodyMethod = getFactory().Method().create(
@@ -89,7 +94,10 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 											exceptionTypes, loopBodyMethodBody);
 
 		// Step 5: create environment-object initialization statment
-		CtLocalVariable envInit = initializeEnvironment(envClass);
+		List<CtExpression<?>> constructorArgs = new ArrayList<CtExpression<?>>();
+		for (CtVariableReference var : varsToCache)
+			constructorArgs.add(getFactory().Code().createVariableRead(var, false));
+		CtLocalVariable envInit = initializeEnvironment(envClass, envConstructor, constructorArgs);
 		element.insertBefore(envInit);
 
 		// TODO: clean up!
@@ -202,13 +210,12 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	/**
 	* Returns the local variable declaration to initialize an object of class envClass
 	*/
-	CtLocalVariable initializeEnvironment(CtClass envClass) {
+	CtLocalVariable initializeEnvironment(CtClass envClass, CtConstructor constructor, List<CtExpression<?>> args) {
 		CtTypeReference classType = ((CtType)envClass).getReference();
 		CtConstructorCall initialization = getFactory().Core().createConstructorCall();
 		initialization.setType(classType);
-		CtConstructor defaultConstructor = getFactory().Constructor().createDefault(envClass);
-		defaultConstructor.setBody(getFactory().Core().createBlock());
-		initialization.setExecutable(defaultConstructor.getReference());
+		initialization.setExecutable(constructor.getReference());
+		initialization.setArguments(args);
 		return getFactory().Code().createLocalVariable(
 			classType,
 			"$initialized$" + envClass.getSimpleName(),
@@ -251,6 +258,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		}
 		CtBlock loopBodyMethodBody = getFactory().Core().createBlock();
 		loopBodyMethodBody.insertBegin(loopBody);
+		loopBodyMethodBody.insertEnd(retFalse);
 		return loopBodyMethodBody;
 	}
 
