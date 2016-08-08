@@ -20,11 +20,14 @@ public class MatchingLoop {
 
             public int retValue$EXPOSED_JAVA$;
 
+            public java.lang.Boolean hasRetVal$EXPOSED_JAVA$;
+
             public java.lang.Boolean loopBody$EXPOSED_JAVA$(java.lang.Integer $counter_of$LoopBodyEnvironment1$EXPOSED_JAVA$, int i) {
                 {
                     java.lang.System.out.println(("[search method] checking position " + i));
                     if (list[i].equals(target)) {
                         retValue$EXPOSED_JAVA$ = i;
+                        hasRetVal$EXPOSED_JAVA$ = true;
                         return true;
                     } 
                 }
@@ -36,11 +39,11 @@ public class MatchingLoop {
         for (int i = 0; i < (list.length); i += 3) {
             $counter_of$LoopBodyEnvironment1$EXPOSED_JAVA$++;
             if ($initialized$LoopBodyEnvironment1$EXPOSED_JAVA$.loopBody$EXPOSED_JAVA$($counter_of$LoopBodyEnvironment1$EXPOSED_JAVA$, i))
-                if (retValue$EXPOSED_JAVA$ == null)
+                if ($initialized$LoopBodyEnvironment1$EXPOSED_JAVA$.hasRetVal$EXPOSED_JAVA$) {
+                    return $initialized$LoopBodyEnvironment1$EXPOSED_JAVA$.retValue$EXPOSED_JAVA$;
+                } else
                     break;
-                else {
-                    return retValue$EXPOSED_JAVA$;
-                }
+                
             
         }
         return -1;

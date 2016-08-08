@@ -33,6 +33,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	private final Set<ModifierKind> JUST_PUBLIC_MODIFIER_SET = new HashSet<ModifierKind>(Arrays.asList(ModifierKind.PUBLIC));
 	private static int loopNumber = 0;
 	private final String LOOP_BODY_RET_VAL_NAME = "retValue" + TAG_FOR_NAMING;
+	private final String LOOP_BODY_HAS_RET_VAL_NAME = "hasRetVal" + TAG_FOR_NAMING;
 	private final String LOOP_BODY_METHOD_NAME = "loopBody" + TAG_FOR_NAMING;
 	private final String ENV_OBJECT_NAME = "$envObject$" + TAG_FOR_NAMING;
 	private enum LoopType {WHILE, DO, FOR, FOR_EACH, OTHER}
@@ -77,8 +78,11 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 														.map(var -> generateFieldInEnvClass(var, envClass, varMappings))
 														.collect(toList());
 		CtVariableReference retValRef = null;
-		if (loopHasReturnStatement) //set up a local value to store the return value if there is one
+		CtVariableReference retStatementTriggerRef = null;
+		if (loopHasReturnStatement) { //set up a local value to store the return value if there is one
 			retValRef = getFactory().Field().create(envClass, JUST_PUBLIC_MODIFIER_SET, retType, LOOP_BODY_RET_VAL_NAME).getReference();
+			retStatementTriggerRef = getFactory().Field().create(envClass, JUST_PUBLIC_MODIFIER_SET, getFactory().Type().BOOLEAN, LOOP_BODY_HAS_RET_VAL_NAME).getReference();
+		}
 		
 		debugHeader("fields of envClass"); envClass.getFields().stream().forEach(field -> debug(field.toString())); debugNewline();
 
@@ -87,7 +91,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		envClass.addConstructor(envConstructor);
 
 		// create the loopbody method
-		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings, loopHasReturnStatement, retValRef);
+		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings, loopHasReturnStatement, retValRef, retStatementTriggerRef);
 		CtMethod loopBodyMethod = getFactory().Method().create(
 											envClass, JUST_PUBLIC_MODIFIER_SET,getFactory().Type().BOOLEAN,
 											LOOP_BODY_METHOD_NAME,makeLoopBodyMethodParams(element, counterVar.getReference()),
@@ -133,20 +137,21 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		mainIf.setCondition(runLoopBody);
 
 		if (loopHasReturnStatement) {
-			CtVariableAccess retValAccess = getFactory().Code().createVariableRead(retValRef, false);
-			CtBinaryOperator retValNull = getFactory().Core().createBinaryOperator();
-			retValNull.setKind(BinaryOperatorKind.EQ);
-			retValNull.setLeftHandOperand(retValAccess);
-			retValNull.setRightHandOperand(getFactory().Code().createLiteral(null));
+			CtFieldRead retValAccess = getFactory().Core().createFieldRead();
+			retValAccess.setTarget(getFactory().Code().createVariableRead(envInit.getReference(), false));
+			retValAccess.setVariable(retValRef);
+			CtFieldRead isRetStatement = getFactory().Core().createFieldRead();
+			isRetStatement.setTarget(getFactory().Code().createVariableRead(envInit.getReference(), false));
+			isRetStatement.setVariable(retStatementTriggerRef);
 			CtBlock returnProcedure = getFactory().Core().createBlock();
 			CtReturn returnStatement = getFactory().Core().createReturn();
 			returnStatement.setReturnedExpression(retValAccess);
 			returnProcedure.insertEnd(returnStatement);
-			CtIf ifBreak = getFactory().Core().createIf();
-			ifBreak.setCondition(retValNull);
-			ifBreak.setThenStatement(breakProcedure);
-			ifBreak.setElseStatement(returnProcedure);
-			mainIf.setThenStatement(ifBreak);
+			CtIf ifReturn = getFactory().Core().createIf();
+			ifReturn.setCondition(isRetStatement);
+			ifReturn.setThenStatement(returnProcedure);
+			ifReturn.setElseStatement(breakProcedure);
+			mainIf.setThenStatement(ifReturn);
 		}
 		else
 			mainIf.setThenStatement(breakProcedure);
@@ -235,7 +240,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	}
 	
 	// (first we copy the raw body of the loop)
-	private CtBlock makeLoopBodyMethodBlock(CtLoop loop, Map<CtLocalVariableReference, CtFieldReference> varMappings, boolean loopHasReturnStatement, CtVariableReference retValRef) {
+	private CtBlock makeLoopBodyMethodBlock(CtLoop loop, Map<CtLocalVariableReference, CtFieldReference> varMappings, boolean loopHasReturnStatement, CtVariableReference retValRef, CtVariableReference retStatementTriggerRef) {
 		CtStatement loopBody = loop.getBody().clone();
 		// commented-out code below unnecessary because we have taken a variable hiding approach
 		// // replace variable accesses with accesses to the cached vars
@@ -263,7 +268,14 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 			for (CtReturn r : loopBody.getElements(new TypeFilter<CtReturn>(CtReturn.class))) {
 				CtAssignment substituteReturnStatmenet = setRetVar(r, retValRef);
 				r.replace(substituteReturnStatmenet);
+				CtFieldRead refStatementTrigger = getFactory().Core().createFieldRead();
+				refStatementTrigger.setTarget(null);
+				refStatementTrigger.setVariable(retStatementTriggerRef);
+				CtAssignment a = getFactory().Core().createAssignment();
+				a.setAssigned(refStatementTrigger);
+				a.setAssignment(getFactory().Code().createLiteral(true));
 				substituteReturnStatmenet.insertAfter(retTrue);
+				substituteReturnStatmenet.insertAfter(a);
 			}
 		}
 		CtBlock loopBodyMethodBody = getFactory().Core().createBlock();
@@ -277,7 +289,10 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	* of the given return statement
 	*/
 	private CtAssignment setRetVar(CtReturn r, CtVariableReference retValRef) {
-		CtVariableAccess retVal = getFactory().Code().createVariableRead(retValRef, false);
+		// CtVariableAccess retVal = getFactory().Code().createVariableRead(retValRef, false);
+		CtFieldRead retVal = getFactory().Core().createFieldRead();
+		retVal.setTarget(null);
+		retVal.setVariable(retValRef);
 		CtAssignment a = getFactory().Core().createAssignment();
 		a.setAssigned(retVal);
 		a.setAssignment(r.getReturnedExpression());
