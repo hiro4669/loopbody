@@ -85,7 +85,6 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		// make the constructor
 		CtConstructor envConstructor = makeEnvConstructor(cacheFields);
 		envClass.addConstructor(envConstructor);
-		envConstructor.setType(correctedTypeReference(envClass));
 
 		// create the loopbody method
 		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings, loopHasReturnStatement, retValRef);
@@ -213,11 +212,13 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	*/
 	CtLocalVariable initializeEnvironment(CtClass envClass, CtConstructor constructor, List<CtExpression<?>> args) {
 		CtTypeReference classType = correctedTypeReference(envClass);
-		debug("fingers crossed: " + classType);
-		CtConstructorCall initialization = getFactory().Core().createConstructorCall();
-		initialization.setType(classType);
-		initialization.setExecutable(constructor.getReference());
-		initialization.setArguments(args);
+		//the following code is generated as a snippet because spoon mistakenly appends a "Main." to the constructor call when generated using the commented-out code
+		String constructorCallSnippet = "new " + classType.toString() + "(" + String.join(", ", args.stream().map(a -> a.toString()).collect(toList())) + ")";
+		CtExpression initialization = getFactory().Code().createCodeSnippetExpression(constructorCallSnippet);
+		// CtConstructorCall initialization = getFactory().Core().createConstructorCall();
+		// initialization.setType(classType);
+		// initialization.setExecutable(constructorExecutable);
+		// initialization.setArguments(args);
 		return getFactory().Code().createLocalVariable(
 			classType,
 			"$initialized$" + envClass.getSimpleName(),

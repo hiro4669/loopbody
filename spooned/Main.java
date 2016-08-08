@@ -48,7 +48,7 @@ public class Main {
             }
         }
         java.lang.Integer $counter_of$LoopBodyEnvironment1$EXPOSED_JAVA$ = 0;
-        LoopBodyEnvironment1$EXPOSED_JAVA$ $initialized$LoopBodyEnvironment1$EXPOSED_JAVA$ = new (x, y);
+        LoopBodyEnvironment1$EXPOSED_JAVA$ $initialized$LoopBodyEnvironment1$EXPOSED_JAVA$ = new LoopBodyEnvironment1$EXPOSED_JAVA$(x, y);
         for (int i = 0; i < N; i++) {
             $counter_of$LoopBodyEnvironment1$EXPOSED_JAVA$++;
             if ($initialized$LoopBodyEnvironment1$EXPOSED_JAVA$.loopBody$EXPOSED_JAVA$($counter_of$LoopBodyEnvironment1$EXPOSED_JAVA$, i))
