@@ -85,6 +85,7 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		// make the constructor
 		CtConstructor envConstructor = makeEnvConstructor(cacheFields);
 		envClass.addConstructor(envConstructor);
+		envConstructor.setType(correctedTypeReference(envClass));
 
 		// create the loopbody method
 		CtBlock loopBodyMethodBody = makeLoopBodyMethodBlock(element, varMappings, loopHasReturnStatement, retValRef);
@@ -211,7 +212,8 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	* Returns the local variable declaration to initialize an object of class envClass
 	*/
 	CtLocalVariable initializeEnvironment(CtClass envClass, CtConstructor constructor, List<CtExpression<?>> args) {
-		CtTypeReference classType = ((CtType)envClass).getReference();
+		CtTypeReference classType = correctedTypeReference(envClass);
+		debug("fingers crossed: " + classType);
 		CtConstructorCall initialization = getFactory().Core().createConstructorCall();
 		initialization.setType(classType);
 		initialization.setExecutable(constructor.getReference());
@@ -222,6 +224,13 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 			initialization
 		);
 
+	}
+
+
+	private CtTypeReference correctedTypeReference(CtClass internalClass) {
+		CtTypeReference classType = ((CtType)internalClass).getReference();
+		classType.setDeclaringType(null);
+		return classType;
 	}
 	
 	// (first we copy the raw body of the loop)
@@ -326,8 +335,12 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	* Creates a uniquely-named internal class in the same class as the given loop
 	*/
 	private CtClass createEnvClass(CtLoop loop) {
-		CtClass declaringClass = loop.getParent(CtClass.class);
-		return getFactory().Class().create(declaringClass, nextEnvName());
+		// The old implementation inserted the class outside of the method
+		//CtClass declaringClass = loop.getParent(CtClass.class);
+		//return getFactory().Class().create(declaringClass, nextEnvName());
+		CtClass envClass = getFactory().Core().createClass();
+		envClass.setSimpleName(nextEnvName());
+		return envClass;
 	}
 
 	/**
