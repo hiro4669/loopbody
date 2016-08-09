@@ -38,14 +38,15 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	private final String ENV_OBJECT_NAME = "$envObject$" + TAG_FOR_NAMING;
 	private enum LoopType {WHILE, DO, FOR, FOR_EACH, OTHER}
 
-	// Step 1: pick a loop
+	// Step 1: pick a loop ------------------------------------------------------------------------------
 	public void process(CtLoop element) {
+		// Currently the prototype only works for for loops
 		if (getType(element) == LoopType.FOR_EACH) return; // currently FOR_EACH are not supported
 		if (getType(element) == LoopType.WHILE) return; // currently WHILE are not supported
 		if (getType(element) == LoopType.DO) return; // currently DO are not supported
 		debugHeader("Processing Loop"); debug("Contents:\n\"" + element + "\"");
 
-		// Step 2: determine loop info
+	// Step 2: determine loop properties ------------------------------------------------------------------
 		boolean loopHasReturnStatement = checkForReturnStatement(element);
 		CtTypeReference retType = loopHasReturnStatement ? parentMethod(element).getType() : null;
 		Set<CtTypeReference<? extends Throwable>> exceptionTypes = parentMethod(element).getThrownTypes();
@@ -54,13 +55,13 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		if (loopHasReturnStatement) debug("return type: " + retType.toString());
 		debugHeader("thrown types:"); exceptionTypes.stream().forEach(x -> debug(x.toString()));
 
-		// Step 3: identify all local variables accessed within the loop
+	// Step 3: identify all local variables accessed within the loop  ------------------------------------
 		List<CtLocalVariableReference> varsToCache = new ArrayList<CtLocalVariableReference>(referencedLocalVars(element));
 		if (getType(element) == LoopType.FOR) // we don't cache this, instead we pass it as a parameter
 			varsToCache.remove(getIteratorVariable((CtFor)element));
 		debugHeader("local variables to cache"); varsToCache.stream().forEach(a -> debug(a.toString())); debugNewline();
 
-		// Step 4: create internal class 
+	// Step 4: create internal class ------------------------------------------------------------------
 		// make class declaration
 		CtClass envClass = createEnvClass(element);
 		element.insertBefore(envClass);
@@ -72,8 +73,8 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 														getFactory().Code().createLiteral(0));
 		element.insertBefore(counterVar);
 
-		HashMap<CtLocalVariableReference, CtFieldReference> varMappings = new HashMap<CtLocalVariableReference, CtFieldReference>();
 		// add fields
+		HashMap<CtLocalVariableReference, CtFieldReference> varMappings = new HashMap<CtLocalVariableReference, CtFieldReference>();
 		List<CtFieldReference>  cacheFields = varsToCache.stream()
 														.map(var -> generateFieldInEnvClass(var, envClass, varMappings))
 														.collect(toList());
@@ -97,23 +98,14 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 											LOOP_BODY_METHOD_NAME,makeLoopBodyMethodParams(element, counterVar.getReference()),
 											exceptionTypes, loopBodyMethodBody);
 
-		// Step 5: create environment-object initialization statment
+	// Step 5: create environment-object initialization statment -------------------------------------------
 		List<CtExpression<?>> constructorArgs = new ArrayList<CtExpression<?>>();
 		for (CtVariableReference var : varsToCache)
 			constructorArgs.add(getFactory().Code().createVariableRead(var, false));
 		CtLocalVariable envInit = initializeEnvironment(envClass, envConstructor, constructorArgs);
 		element.insertBefore(envInit);
 
-		// // TODO: clean up!
-		// for(CtVariableReference var : varsToCache) {
-		// 	// CtCodeSnippetExpression rhs = getFactory().Code().createCodeSnippetExpression(var.getSimpleName());
-		// 	// CtCodeSnippetExpression lhs = getFactory().Code().createCodeSnippetExpression(envInit.getSimpleName() + "." + var.getSimpleName());
-		// 	// CtAssignment assignment = getFactory().Code().createVariableAssignment(varMappings.get(var), false, rhs);
-		// 	CtCodeSnippetStatement a = getFactory().Code().createCodeSnippetStatement(envInit.getSimpleName() + "." + var.getSimpleName() + " = " + var.getSimpleName());
-		// 	element.insertBefore(a);
-		// }
-
-		// Step 6: Generate new loop body, replace
+	// Step 6: Generate new loop body in method, replace old loop --------------------------------------------------------------
 		CtBlock newLoopBody = getFactory().Core().createBlock();
 
 		// increment the counter
@@ -131,47 +123,29 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 												getFactory().Code().createVariableRead(envInit.getReference(), false),
 												loopBodyMethod.getReference(),
 												loopBodyActualParams);
-		
-		CtStatement breakProcedure = getFactory().Core().createBreak();
 		CtIf mainIf = getFactory().Core().createIf();
 		mainIf.setCondition(runLoopBody);
 
-		if (loopHasReturnStatement) {
-			CtFieldRead retValAccess = getFactory().Core().createFieldRead();
-			retValAccess.setTarget(getFactory().Code().createVariableRead(envInit.getReference(), false));
-			retValAccess.setVariable(retValRef);
-			CtFieldRead isRetStatement = getFactory().Core().createFieldRead();
-			isRetStatement.setTarget(getFactory().Code().createVariableRead(envInit.getReference(), false));
-			isRetStatement.setVariable(retStatementTriggerRef);
-			CtBlock returnProcedure = getFactory().Core().createBlock();
-			CtReturn returnStatement = getFactory().Core().createReturn();
-			returnStatement.setReturnedExpression(retValAccess);
-			returnProcedure.insertEnd(returnStatement);
-			CtIf ifReturn = getFactory().Core().createIf();
-			ifReturn.setCondition(isRetStatement);
-			ifReturn.setThenStatement(returnProcedure);
-			ifReturn.setElseStatement(breakProcedure);
+		if (!loopHasReturnStatement)
+			mainIf.setThenStatement(getFactory().Core().createBreak());
+		else {
+			CtIf ifReturn = getReturnBevahior(envInit, retStatementTriggerRef, retValRef);
 			mainIf.setThenStatement(ifReturn);
 		}
-		else
-			mainIf.setThenStatement(breakProcedure);
 
 		newLoopBody.insertEnd(mainIf);
 		element.setBody(newLoopBody);
 		
-		
-		// TODO Step 7: After loop, uncache variables 
-		// 				through the injection of assignment statements
+	// Step 7: After loop, uncache variables  --------------------------------------------------------------------
 		for (CtLocalVariableReference var : varsToCache) {
 			CtExpression rhs = getFactory().Code().createCodeSnippetExpression(envInit.getSimpleName() + "." + var.getSimpleName());
 			CtAssignment assignment = getFactory().Code().createVariableAssignment(var, false, rhs);
 			element.insertAfter(assignment);
 		}
-
 		System.out.println("");
 	}
 
-	
+
 	//========================================================================
 	//========================= *HELPER METHODS BELOW* =======================
 	//========================================================================
@@ -194,6 +168,27 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 	*/
 	private CtLocalVariableReference getIteratorVariable (CtFor loop) {
 		return ((CtLocalVariable)loop.getForInit().get(0)).getReference();
+	}
+
+	/**
+	* Generates the logic to handle the running of the loop-body method in the case of the original loop including a return statement
+	*/
+	private CtIf getReturnBevahior(CtLocalVariable envInit, CtVariableReference retStatementTriggerRef, CtVariableReference retValRef) {
+		CtFieldRead retValAccess = getFactory().Core().createFieldRead();
+		retValAccess.setTarget(getFactory().Code().createVariableRead(envInit.getReference(), false));
+		retValAccess.setVariable(retValRef);
+		CtFieldRead isRetStatement = getFactory().Core().createFieldRead();
+		isRetStatement.setTarget(getFactory().Code().createVariableRead(envInit.getReference(), false));
+		isRetStatement.setVariable(retStatementTriggerRef);
+		CtBlock returnProcedure = getFactory().Core().createBlock();
+		CtReturn returnStatement = getFactory().Core().createReturn();
+		returnStatement.setReturnedExpression(retValAccess);
+		returnProcedure.insertEnd(returnStatement);
+		CtIf behavior = getFactory().Core().createIf();
+		behavior.setCondition(isRetStatement);
+		behavior.setThenStatement(returnProcedure);
+		behavior.setElseStatement(getFactory().Core().createBreak());
+		return behavior;
 	}
 
 	/**
@@ -232,25 +227,22 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 
 	}
 
-
+	/**
+	* Corrects the type refernce of the environment class because the class is defaulted to having the incorrect
+	* declared type of "Main" or whatever the name of the overarching class is, even though it should be blank since
+	* it's actually declared within a method and not doesn't have the same scope
+	*/
 	private CtTypeReference correctedTypeReference(CtClass internalClass) {
 		CtTypeReference classType = ((CtType)internalClass).getReference();
 		classType.setDeclaringType(null);
 		return classType;
 	}
 	
-	// (first we copy the raw body of the loop)
+	/**
+	* Creates the body of the loop-body method
+	*/
 	private CtBlock makeLoopBodyMethodBlock(CtLoop loop, Map<CtLocalVariableReference, CtFieldReference> varMappings, boolean loopHasReturnStatement, CtVariableReference retValRef, CtVariableReference retStatementTriggerRef) {
 		CtStatement loopBody = loop.getBody().clone();
-		// commented-out code below unnecessary because we have taken a variable hiding approach
-		// // replace variable accesses with accesses to the cached vars
-		// for (CtVariableAccess varAccess : loopBody.getElements(new TypeFilter<CtVariableAccess>(CtVariableAccess.class))) {
-		// 	CtVariableReference var = varAccess.getVariable();
-		// 	if(varMappings.containsKey(var)) {
-		// 		CtFieldReference cached = varMappings.get(var);
-		// 		debug("TODO: replace access \"" + varAccess.toString() + "\" with a var access to the field: " + "\"" + cached.toString() +  "\"");
-		// 	}
-		// }
 		CtLiteral trueLiteral = getFactory().Code().createLiteral(true);
 		CtLiteral falseLiteral = getFactory().Code().createLiteral(false);
 		CtReturn retTrue = getFactory().Core().createReturn();
@@ -299,7 +291,9 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		return a;
 	}
 
-
+	/**
+	* Generates a constructor for the environment class that takes variables to cache as parameters and caches them
+	*/
 	private CtConstructor makeEnvConstructor(List<CtFieldReference> cacheFields) {
 		List<CtParameter> constuctorParams = cacheFields.stream()
 														.map(this::generateParam)
@@ -401,47 +395,46 @@ public class LoopExposer extends AbstractProcessor<CtLoop> {
 		return param;
 	}
 
-	/** not used */
-	private CtExecutable execFromReference(CtExecutableReference ref) {
-		CtExecutable executable = ref.getDeclaration();
-		// if getDeclaration returns null, then we know that we're looking at something external and need to use getExecutableDeclaration
-		if (executable == null)
-			executable = ref.getExecutableDeclaration();
-		return executable;
-	}
+	// /** not used */
+	// private CtExecutable execFromReference(CtExecutableReference ref) {
+	// 	CtExecutable executable = ref.getDeclaration();
+	// 	// if getDeclaration returns null, then we know that we're looking at something external and need to use getExecutableDeclaration
+	// 	if (executable == null)
+	// 		executable = ref.getExecutableDeclaration();
+	// 	return executable;
+	// }
 	
-	/**
-	* Returns a set of types of all exceptions that can be thrown in the given loop
-	* NOT USED because it fails to capture the exception types of methods imported from external libraries
-	*/
-	private Set<CtTypeReference<? extends Throwable>> getExceptionTypes(CtElement elem) {
-		//start with an empty set
-		Set<CtTypeReference<? extends Throwable>> result = new HashSet<>(Collections.<CtTypeReference<? extends Throwable>>emptySet());
-		// if top level element is itself an executable, add all of its thrown types
-		if (elem instanceof CtExecutableReference) {
-			debug("adding thrown types of " + elem.toString());
-			Set<CtTypeReference<? extends Throwable>> thrownTypes = execFromReference((CtExecutableReference)elem).getThrownTypes();
-			debug("generated thrownTypes; size: " + Integer.toString(thrownTypes.size()));
-			result.addAll(thrownTypes);
-		}
-		// get sub executables
-		List<CtExecutableReference> subExecutables = elem.getElements(new TypeFilter<>(CtExecutableReference.class));
-		subExecutables.remove(elem);
+	// /**
+	// * Returns a set of types of all exceptions that can be thrown in the given loop
+	// * NOT USED because it fails to capture the exception types of methods imported from external libraries
+	// */
+	// private Set<CtTypeReference<? extends Throwable>> getExceptionTypes(CtElement elem) {
+	// 	//start with an empty set
+	// 	Set<CtTypeReference<? extends Throwable>> result = new HashSet<>(Collections.<CtTypeReference<? extends Throwable>>emptySet());
+	// 	// if top level element is itself an executable, add all of its thrown types
+	// 	if (elem instanceof CtExecutableReference) {
+	// 		debug("adding thrown types of " + elem.toString());
+	// 		Set<CtTypeReference<? extends Throwable>> thrownTypes = execFromReference((CtExecutableReference)elem).getThrownTypes();
+	// 		debug("generated thrownTypes; size: " + Integer.toString(thrownTypes.size()));
+	// 		result.addAll(thrownTypes);
+	// 	}
+	// 	// get sub executables
+	// 	List<CtExecutableReference> subExecutables = elem.getElements(new TypeFilter<>(CtExecutableReference.class));
+	// 	subExecutables.remove(elem);
 
-		// recursively add thrown types from sub executables
-		if (!subExecutables.isEmpty()) {
-			Set<CtTypeReference<? extends Throwable>> subThrownTypes = 
-				subExecutables
-				.stream()
-				.map(this::getExceptionTypes)
-				.flatMap(Set::stream)
-				.collect(toSet());
-			if (subThrownTypes != null)
-				result.addAll(subThrownTypes);
-		}
-		return result;
-		// return Collections.<CtTypeReference>emptySet(); //PLACEHOLDER EMPTY SET
-	}
+	// 	// recursively add thrown types from sub executables
+	// 	if (!subExecutables.isEmpty()) {
+	// 		Set<CtTypeReference<? extends Throwable>> subThrownTypes = 
+	// 			subExecutables
+	// 			.stream()
+	// 			.map(this::getExceptionTypes)
+	// 			.flatMap(Set::stream)
+	// 			.collect(toSet());
+	// 		if (subThrownTypes != null)
+	// 			result.addAll(subThrownTypes);
+	// 	}
+	// 	return result;
+	// }
 
 
 	//------------------------- *SIMPLE DEGUGGING SYSTEM* -------------------
