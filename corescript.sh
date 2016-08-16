@@ -13,6 +13,9 @@ input="$2"
 output="$3"
 processor_src="src/${processor//./\/}.java"
 
+# STEP 0: MAKE SURE THERE IS A BIN FOLDER TO PUT THE COMPILED PROCESSOR IN
+mkdir bin -p
+
 # STEP 1: COMPILE THE PROCESSOR
 
 echo "1. Building processor $processor..."
