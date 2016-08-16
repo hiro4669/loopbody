@@ -30,7 +30,7 @@ fi
 
 # STEP 2: RUN SPOON USING THE PROCESSOR
 
-echo "2. Running spoon (default output) on the Simple Loop example, using $processor"
+echo "2. Running spoon using $processor"
 echo
 
 
